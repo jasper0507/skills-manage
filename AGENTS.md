@@ -14,6 +14,6 @@ Single-context layout — root `CONTEXT.md` + `docs/adr/` (ADRs created lazily).
 
 ### Current phase (for new sessions)
 
-- **Done:** domain in `CONTEXT.md`; accepted throwaway UX in `prototypes/workbench-desktop/`; research under `docs/research/`; **Spec #1**; tickets **#2** (inventory), **#3** (persistent desktop + 中央索引 + rescan), and **#4** (desktop boxes: collision, 普通/组合盒子, compose/eject/demote); remaining **#5–#7** with blocking edges.
-- **Do next:** `/implement` on frontier ticket **#5** only (fresh context per ticket). Do **not** re-triage #5–#7; do **not** re-grill v1 workbench rules.
+- **Done:** domain in `CONTEXT.md`; accepted throwaway UX in `prototypes/workbench-desktop/`; research under `docs/research/`; **Spec #1**; tickets **#2** (inventory), **#3** (persistent desktop + 中央索引 + rescan), **#4** (desktop boxes: collision, 普通/组合盒子, compose/eject/demote), and **#5** (clipboard + multi-select + create box); remaining **#6–#7** with blocking edges.
+- **Do next:** `/implement` on frontier ticket **#6** only (fresh context per ticket). Do **not** re-triage #6–#7; do **not** re-grill v1 workbench rules.
 - **Do not implement:** `prototypes/tag-pick-flow/` (rejected path). Treat `prototypes/` as behavior oracle, not production source tree.
