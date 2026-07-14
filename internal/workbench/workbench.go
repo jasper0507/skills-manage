@@ -30,26 +30,26 @@ type Location = index.Location
 
 // Skill is a discovered local skill package. Identity is the canonical realpath.
 type Skill struct {
-	Identity string // Skill 身份: normalized realpath
-	Name     string // display name (frontmatter name, else directory name)
+	Identity string `json:"identity"` // Skill 身份: normalized realpath
+	Name     string `json:"name"`     // display name (frontmatter name, else directory name)
 }
 
 // Inventory is the live 清单 of Skills discovered from 扫描根.
 type Inventory struct {
-	Skills []Skill
+	Skills []Skill `json:"skills"`
 }
 
 // Placeholder is a 占位 shortcut icon on the desk (not a file copy).
 type Placeholder struct {
-	ID       string
-	Identity string // Skill 身份 (realpath)
-	Name     string // display name from latest inventory when known
-	Location Location
+	ID       string   `json:"id"`
+	Identity string   `json:"identity"` // Skill 身份 (realpath)
+	Name     string   `json:"name"`     // display name from latest inventory when known
+	Location Location `json:"location"`
 }
 
 // SystemIcon is a non-skill desk icon (e.g. 回收站).
 type SystemIcon struct {
-	Location Location
+	Location Location `json:"location"`
 }
 
 // Box kinds (re-exported for callers at the Workbench seam).
@@ -79,21 +79,24 @@ const (
 
 // Compartment is one 隔间 of a composite box, with contained placeholders as icons.
 type Compartment struct {
-	ID    string
-	Tag   string
-	Items []Placeholder
+	ID    string        `json:"id"`
+	Tag   string        `json:"tag"`
+	Items []Placeholder `json:"items"`
 }
 
 // Box is a 普通盒子 or 组合盒子 on the desk.
 type Box struct {
-	ID                  string
-	Kind                string // simple | composite
-	Tag                 string // simple: single tag / display name
-	Title               string // composite: 盒标题
-	X, Y, W, H          float64
-	Items               []Placeholder // simple box contents as icons
-	Compartments        []Compartment
-	ActiveCompartmentID string
+	ID                  string        `json:"id"`
+	Kind                string        `json:"kind"`  // simple | composite
+	Tag                 string        `json:"tag"`   // simple: single tag / display name
+	Title               string        `json:"title"` // composite: 盒标题
+	X                   float64       `json:"x"`
+	Y                   float64       `json:"y"`
+	W                   float64       `json:"w"`
+	H                   float64       `json:"h"`
+	Items               []Placeholder `json:"items,omitempty"` // simple box contents as icons
+	Compartments        []Compartment `json:"compartments,omitempty"`
+	ActiveCompartmentID string        `json:"activeCompartmentId,omitempty"`
 }
 
 // Clipboard modes (Windows-style copy vs cut).
@@ -104,18 +107,18 @@ const (
 
 // Clipboard holds session copy/cut targets (placeholder ids). Not persisted in the index.
 type Clipboard struct {
-	Mode           string   // ClipCopy | ClipCut
-	PlaceholderIDs []string
+	Mode           string   `json:"mode"` // ClipCopy | ClipCut
+	PlaceholderIDs []string `json:"placeholderIds"`
 }
 
 // Desk is the external desktop view: placeholders + recycle system icon + boxes.
 type Desk struct {
-	Placeholders []Placeholder
-	RecycleIcon  SystemIcon
-	Boxes        []Box
-	Clipboard    *Clipboard // nil when empty
-	MultiSelect  bool
-	SelectedIDs  []string
+	Placeholders []Placeholder `json:"placeholders"`
+	RecycleIcon  SystemIcon    `json:"recycleIcon"`
+	Boxes        []Box         `json:"boxes"`
+	Clipboard    *Clipboard    `json:"clipboard"` // nil when empty
+	MultiSelect  bool          `json:"multiSelect"`
+	SelectedIDs  []string      `json:"selectedIds"`
 }
 
 // Retention is how long quarantined skills remain restorable before purge-due.
@@ -333,35 +336,71 @@ func placeholdersForIDs(ids []string, phByID map[string]Placeholder) []Placehold
 // Icon → icon on the same cell creates a 普通盒子 named 「普通盒子N」 containing both.
 // Empty cells (or recycle-only cells) place the mover on a free cell without stacking.
 func (w *Workbench) MovePlaceholderToDesktop(placeholderID string, row, col int) error {
+	return w.MovePlaceholdersToDesktop([]string{placeholderID}, row, col)
+}
+
+// MovePlaceholdersToDesktop drops one or more 占位 onto the desktop grid (multi-select).
+// If the target cell holds a non-mover skill, all movers merge with it into a 普通盒子.
+// Otherwise each mover is parked then placed into free cells starting at (row, col).
+func (w *Workbench) MovePlaceholdersToDesktop(placeholderIDs []string, row, col int) error {
 	if err := w.requireOpen(); err != nil {
 		return err
 	}
 	if row < 1 || col < 1 {
 		return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
 	}
-	phIdx, ok := w.placeholderIndex(placeholderID)
-	if !ok {
-		return fmt.Errorf("unknown placeholder %q", placeholderID)
+	ids := make([]string, 0, len(placeholderIDs))
+	seen := make(map[string]bool, len(placeholderIDs))
+	for _, id := range placeholderIDs {
+		if id == "" || seen[id] {
+			continue
+		}
+		idx, ok := w.placeholderIndex(id)
+		if !ok {
+			return fmt.Errorf("unknown placeholder %q", id)
+		}
+		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+			return fmt.Errorf("cannot move placeholder in recycle")
+		}
+		seen[id] = true
+		ids = append(ids, id)
 	}
-	if w.doc.Placeholders[phIdx].Location.Kind == LocRecycle {
-		return fmt.Errorf("cannot move placeholder in recycle")
+	if len(ids) == 0 {
+		return fmt.Errorf("no placeholders to move")
 	}
 
-	// Icon → icon: another skill occupies this cell (excluding the mover).
-	if occID, found := w.skillAtDesktopCell(row, col, placeholderID); found {
-		return w.mergeIconsIntoAutoBox([]string{occID, placeholderID}, row, col)
+	// Icon → icon: another skill occupies this cell (excluding the movers).
+	// Match prototype: only non-selected occupants trigger auto-box with all movers.
+	if occID, found := w.skillAtDesktopCellExcluding(row, col, ids); found {
+		all := append([]string{occID}, ids...)
+		return w.mergeIconsIntoAutoBox(all, row, col)
 	}
 
-	// Park mover off desk lists while searching free cells.
-	w.removePlaceholderFromContainers(placeholderID)
-	w.doc.Placeholders[phIdx].Location = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
-
-	free := nextFreeCell(w.occupiedDesktopCells(), col, row)
-	// Prefer the requested cell if free.
-	if !w.occupiedDesktopCells()[cell{row, col}] {
-		free = cell{row, col}
+	// Park movers so they do not block free-cell search.
+	for _, id := range ids {
+		idx, _ := w.placeholderIndex(id)
+		w.removePlaceholderFromContainers(id)
+		w.doc.Placeholders[idx].Location = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
 	}
-	w.doc.Placeholders[phIdx].Location = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
+
+	occupied := w.occupiedDesktopCells()
+	// Prefer requested cell first, then walk free cells.
+	startRow, startCol := row, col
+	for _, id := range ids {
+		idx, _ := w.placeholderIndex(id)
+		free := nextFreeCell(occupied, startCol, startRow)
+		if !occupied[cell{row, col}] && startRow == row && startCol == col {
+			// First placement: exact cell when free.
+			free = cell{row, col}
+		}
+		w.doc.Placeholders[idx].Location = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
+		occupied[free] = true
+		startRow = free.row
+		startCol = free.col + 1
+		if startCol < 1 {
+			startCol = 1
+		}
+	}
 	return w.persist()
 }
 
@@ -392,8 +431,20 @@ func (w *Workbench) boxIndex(id string) (int, bool) {
 
 // skillAtDesktopCell returns the placeholder id of a skill icon at (row,col), if any.
 func (w *Workbench) skillAtDesktopCell(row, col int, excludePhID string) (string, bool) {
+	return w.skillAtDesktopCellExcluding(row, col, []string{excludePhID})
+}
+
+func (w *Workbench) skillAtDesktopCellExcluding(row, col int, excludePhIDs []string) (string, bool) {
+	ex := make(map[string]bool, len(excludePhIDs))
+	for _, id := range excludePhIDs {
+		ex[id] = true
+	}
+	return w.skillAtDesktopCellExcludeMap(row, col, ex)
+}
+
+func (w *Workbench) skillAtDesktopCellExcludeMap(row, col int, exclude map[string]bool) (string, bool) {
 	for _, p := range w.doc.Placeholders {
-		if p.ID == excludePhID {
+		if exclude[p.ID] {
 			continue
 		}
 		if p.Location.Kind != LocDesktop {
@@ -1562,29 +1613,29 @@ func (w *Workbench) RecycleIconAction(action string) error {
 // BodyTrashPlan is one skill identity that will enter body quarantine on ConfirmTrash.
 // Path is the realpath shown in the confirmation UI.
 type BodyTrashPlan struct {
-	Identity       string
-	Path           string
-	Name           string
-	PlaceholderIDs []string // all live placeholders for this identity
+	Identity       string   `json:"identity"`
+	Path           string   `json:"path"`
+	Name           string   `json:"name"`
+	PlaceholderIDs []string `json:"placeholderIds"` // all live placeholders for this identity
 }
 
 // TrashPlan describes the effect of ConfirmTrash for the given placeholder ids.
 type TrashPlan struct {
-	IconOnlyIDs []string       // non-last placeholders: remove icons only
-	BodyItems   []BodyTrashPlan // last placeholder(s) for an identity: quarantine
+	IconOnlyIDs []string        `json:"iconOnlyIds"` // non-last placeholders: remove icons only
+	BodyItems   []BodyTrashPlan `json:"bodyItems"`   // last placeholder(s) for an identity: quarantine
 }
 
 // RecycleView is one entry in the product recycle bin (external view).
 type RecycleView struct {
-	ID             string
-	Identity       string
-	Name           string
-	OriginalPath   string
-	QuarantinePath string
-	DeletedAt      time.Time
-	PurgeAfter     time.Time
-	PlaceholderIDs []string
-	State          string
+	ID             string    `json:"id"`
+	Identity       string    `json:"identity"`
+	Name           string    `json:"name"`
+	OriginalPath   string    `json:"originalPath"`
+	QuarantinePath string    `json:"quarantinePath"`
+	DeletedAt      time.Time `json:"deletedAt"`
+	PurgeAfter     time.Time `json:"purgeAfter"`
+	PlaceholderIDs []string  `json:"placeholderIds"`
+	State          string    `json:"state"`
 }
 
 // RecycleBin returns quarantined skill entries (restorable until purge).

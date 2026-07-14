@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>分类工作台 — skills-manage</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="main">
+        <div class="toolbar">
+          <button type="button" id="btn-rescan">重扫</button>
+          <span class="flash" id="flash" hidden></span>
+          <span class="msg" id="msg"></span>
+        </div>
+        <div class="desktop" id="desktop"></div>
+      </div>
+      <aside class="side">
+        <h2>回收站</h2>
+        <div id="bin-list"></div>
+      </aside>
+    </div>
+    <div id="modal-root"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
