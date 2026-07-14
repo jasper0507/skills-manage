@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PROTOTYPE — free desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="banner">
+      PROTOTYPE — 网格桌面（类 Windows）：图标不重叠；图标叠图标→自动「普通盒子N」；图标叠盒子→入当前标签；盒子不压图标
+    </div>
+    <div id="app">
+      <div class="main">
+        <div class="toolbar">
+          <!-- 重置仅测试用；成品不提供 -->
+          <button type="button" id="btn-reset">重置（仅测试）</button>
+          <span class="flash" id="flash" hidden></span>
+          <span class="msg" id="msg"></span>
+        </div>
+        <div class="desktop" id="desktop"></div>
+      </div>
+      <aside class="side">
+        <h2>state</h2>
+        <pre id="state-pre"></pre>
+        <h2 style="margin-top: 16px">回收站内容</h2>
+        <div id="bin-list"></div>
+      </aside>
+    </div>
+    <div id="modal-root"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
