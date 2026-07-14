@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // SchemaVersion is the current on-disk document version.
@@ -72,6 +73,26 @@ type BoxRecord struct {
 	ActiveCompartmentID string              `json:"activeCompartmentId,omitempty"`
 }
 
+// Recycle entry lifecycle states.
+const (
+	RecycleStateQuarantined = "quarantined"
+	RecycleStatePurging     = "purging"
+	RecycleStatePurged      = "purged"
+)
+
+// RecycleEntry is one quarantined skill identity in the product recycle bin.
+type RecycleEntry struct {
+	ID             string    `json:"id"`
+	Identity       string    `json:"identity"` // original Skill 身份 (realpath)
+	Name           string    `json:"name,omitempty"`
+	OriginalPath   string    `json:"originalPath"`
+	QuarantinePath string    `json:"quarantinePath"`
+	DeletedAt      time.Time `json:"deletedAt"`
+	PurgeAfter     time.Time `json:"purgeAfter"`
+	PlaceholderIDs []string  `json:"placeholderIds,omitempty"`
+	State          string    `json:"state"` // quarantined | purging | purged
+}
+
 // Document is the full central index payload.
 type Document struct {
 	SchemaVersion int                 `json:"schemaVersion"`
@@ -79,7 +100,7 @@ type Document struct {
 	Placeholders  []PlaceholderRecord `json:"placeholders"`
 	RecycleIcon   Location            `json:"recycleIcon"`
 	Boxes         []BoxRecord         `json:"boxes,omitempty"`
-	RecycleBin    json.RawMessage     `json:"recycleBin,omitempty"`
+	RecycleBin    []RecycleEntry      `json:"recycleBin,omitempty"`
 	BoxNameSeq    int                 `json:"boxNameSeq,omitempty"`
 }
 
@@ -241,7 +262,13 @@ func cloneDocument(doc Document) Document {
 		}
 	}
 	if doc.RecycleBin != nil {
-		out.RecycleBin = append(json.RawMessage(nil), doc.RecycleBin...)
+		out.RecycleBin = make([]RecycleEntry, len(doc.RecycleBin))
+		for i, e := range doc.RecycleBin {
+			out.RecycleBin[i] = e
+			if e.PlaceholderIDs != nil {
+				out.RecycleBin[i].PlaceholderIDs = append([]string(nil), e.PlaceholderIDs...)
+			}
+		}
 	}
 	return out
 }
