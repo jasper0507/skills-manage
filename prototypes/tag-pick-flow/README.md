@@ -1,5 +1,7 @@
 # PROTOTYPE — tag → skill → clipboard pick flow
 
+> **REJECTED for v1.** Do not implement this flow. See `prototypes/README.md` and root `CONTEXT.md` (分类工作台 is the v1 path).
+
 **Throwaway.** Answers one question, then die or move to a throwaway branch.
 
 ## Question

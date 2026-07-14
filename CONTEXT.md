@@ -168,8 +168,10 @@ _Avoid_: 无视已验证交互另起炉灶、面向用户的一键清空布局
 
 ## 参考
 
-- 交互原型：`prototypes/workbench-desktop/`（抛弃型，作行为说明而非生产代码）  
+- 交互原型（**已验收**）：`prototypes/workbench-desktop/`（抛弃型，作行为说明而非生产代码）  
+- 负例原型（**已否决**，勿当 v1 实现）：`prototypes/tag-pick-flow/`（CLI 标签 + 挑选 → 剪贴板）  
 - 删除安全调研：`docs/research/safe-recycle-bin-deletion.md`  
 - 技能管理生态：`docs/research/skills-management-landscape.md`  
 - 类似产品：`docs/research/similar-local-skill-inventory-projects.md`  
 - 桌面整理参考：Coodesker（酷呆桌面）多标签盒等公开能力  
+- 实现跟踪：GitHub Spec **#1**；票 **#2–#7**（frontier 为 **#2** Inventory）  
