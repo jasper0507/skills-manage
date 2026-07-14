@@ -44,19 +44,32 @@ type SkillRecord struct {
 	Name     string `json:"name"`
 }
 
-// BoxRecord is stored for forward compatibility with box tickets; v1 desk may leave empty.
+// Box kinds stored in the index.
+const (
+	BoxSimple    = "simple"
+	BoxComposite = "composite"
+)
+
+// CompartmentRecord is one 隔间 inside a composite box.
+type CompartmentRecord struct {
+	ID      string   `json:"id"`
+	Tag     string   `json:"tag"`
+	ItemIDs []string `json:"itemIds"`
+}
+
+// BoxRecord is a 普通盒子 or 组合盒子 on the desk.
 type BoxRecord struct {
-	ID                  string          `json:"id"`
-	Kind                string          `json:"kind"` // simple | composite
-	Tag                 string          `json:"tag,omitempty"`
-	Title               string          `json:"title,omitempty"`
-	X                   float64         `json:"x,omitempty"`
-	Y                   float64         `json:"y,omitempty"`
-	W                   float64         `json:"w,omitempty"`
-	H                   float64         `json:"h,omitempty"`
-	ItemIDs             []string        `json:"itemIds,omitempty"`
-	Compartments        json.RawMessage `json:"compartments,omitempty"`
-	ActiveCompartmentID string          `json:"activeCompartmentId,omitempty"`
+	ID                  string              `json:"id"`
+	Kind                string              `json:"kind"` // simple | composite
+	Tag                 string              `json:"tag,omitempty"`
+	Title               string              `json:"title,omitempty"`
+	X                   float64             `json:"x,omitempty"`
+	Y                   float64             `json:"y,omitempty"`
+	W                   float64             `json:"w,omitempty"`
+	H                   float64             `json:"h,omitempty"`
+	ItemIDs             []string            `json:"itemIds,omitempty"`
+	Compartments        []CompartmentRecord `json:"compartments,omitempty"`
+	ActiveCompartmentID string              `json:"activeCompartmentId,omitempty"`
 }
 
 // Document is the full central index payload.
@@ -222,10 +235,30 @@ func cloneDocument(doc Document) Document {
 		out.Skills = append([]SkillRecord(nil), doc.Skills...)
 	}
 	if doc.Boxes != nil {
-		out.Boxes = append([]BoxRecord(nil), doc.Boxes...)
+		out.Boxes = make([]BoxRecord, len(doc.Boxes))
+		for i, b := range doc.Boxes {
+			out.Boxes[i] = cloneBoxRecord(b)
+		}
 	}
 	if doc.RecycleBin != nil {
 		out.RecycleBin = append(json.RawMessage(nil), doc.RecycleBin...)
+	}
+	return out
+}
+
+func cloneBoxRecord(b BoxRecord) BoxRecord {
+	out := b
+	if b.ItemIDs != nil {
+		out.ItemIDs = append([]string(nil), b.ItemIDs...)
+	}
+	if b.Compartments != nil {
+		out.Compartments = make([]CompartmentRecord, len(b.Compartments))
+		for i, c := range b.Compartments {
+			out.Compartments[i] = c
+			if c.ItemIDs != nil {
+				out.Compartments[i].ItemIDs = append([]string(nil), c.ItemIDs...)
+			}
+		}
 	}
 	return out
 }
