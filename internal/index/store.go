@@ -1,0 +1,231 @@
+// Package index is the central index (中央索引) adapter: load/save one user-level document.
+package index
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+)
+
+// SchemaVersion is the current on-disk document version.
+const SchemaVersion = 1
+
+// LocationKind matches workbench location kinds for persistence.
+type LocationKind string
+
+const (
+	LocDesktop LocationKind = "desktop"
+	LocBox     LocationKind = "box"
+	LocRecycle LocationKind = "recycle"
+)
+
+// Location is where a placeholder or system icon lives.
+type Location struct {
+	Kind          LocationKind `json:"kind"`
+	Row           int          `json:"row,omitempty"`
+	Col           int          `json:"col,omitempty"`
+	BoxID         string       `json:"boxId,omitempty"`
+	CompartmentID string       `json:"compartmentId,omitempty"`
+}
+
+// PlaceholderRecord is one 占位 shortcut in the index.
+type PlaceholderRecord struct {
+	ID       string   `json:"id"`
+	Identity string   `json:"identity"` // Skill 身份 (realpath)
+	Location Location `json:"location"`
+}
+
+// SkillRecord caches display metadata for an identity (optional; desk can refresh from scan).
+type SkillRecord struct {
+	Identity string `json:"identity"`
+	Name     string `json:"name"`
+}
+
+// BoxRecord is stored for forward compatibility with box tickets; v1 desk may leave empty.
+type BoxRecord struct {
+	ID                  string          `json:"id"`
+	Kind                string          `json:"kind"` // simple | composite
+	Tag                 string          `json:"tag,omitempty"`
+	Title               string          `json:"title,omitempty"`
+	X                   float64         `json:"x,omitempty"`
+	Y                   float64         `json:"y,omitempty"`
+	W                   float64         `json:"w,omitempty"`
+	H                   float64         `json:"h,omitempty"`
+	ItemIDs             []string        `json:"itemIds,omitempty"`
+	Compartments        json.RawMessage `json:"compartments,omitempty"`
+	ActiveCompartmentID string          `json:"activeCompartmentId,omitempty"`
+}
+
+// Document is the full central index payload.
+type Document struct {
+	SchemaVersion int                 `json:"schemaVersion"`
+	Skills        []SkillRecord       `json:"skills,omitempty"`
+	Placeholders  []PlaceholderRecord `json:"placeholders"`
+	RecycleIcon   Location            `json:"recycleIcon"`
+	Boxes         []BoxRecord         `json:"boxes,omitempty"`
+	RecycleBin    json.RawMessage     `json:"recycleBin,omitempty"`
+	BoxNameSeq    int                 `json:"boxNameSeq,omitempty"`
+}
+
+// Store loads and atomically saves the central index document.
+type Store interface {
+	Load() (Document, error)
+	Save(Document) error
+}
+
+// MemoryStore is an in-process index for tests.
+type MemoryStore struct {
+	mu  sync.Mutex
+	doc *Document
+}
+
+// NewMemoryStore returns an empty in-memory store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{}
+}
+
+// Load returns a copy of the stored document, or an empty document if never saved.
+func (m *MemoryStore) Load() (Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.doc == nil {
+		return emptyDocument(), nil
+	}
+	return cloneDocument(*m.doc), nil
+}
+
+// Save replaces the in-memory document.
+func (m *MemoryStore) Save(doc Document) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := cloneDocument(doc)
+	m.doc = &c
+	return nil
+}
+
+// FileStore persists the index as a single JSON file with atomic replace.
+type FileStore struct {
+	Path string
+}
+
+// NewFileStore returns a file-backed store at path (e.g. ~/.config/skills-manage/index.json).
+func NewFileStore(path string) *FileStore {
+	return &FileStore{Path: path}
+}
+
+// Load reads the JSON document. Missing file yields an empty document.
+func (f *FileStore) Load() (Document, error) {
+	data, err := os.ReadFile(f.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return emptyDocument(), nil
+		}
+		return Document{}, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return emptyDocument(), nil
+	}
+	var doc Document
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return Document{}, err
+	}
+	if doc.SchemaVersion == 0 {
+		doc.SchemaVersion = SchemaVersion
+	}
+	if doc.Placeholders == nil {
+		doc.Placeholders = []PlaceholderRecord{}
+	}
+	return doc, nil
+}
+
+// Save writes the document atomically: temp file in the same directory, then rename.
+func (f *FileStore) Save(doc Document) error {
+	if f.Path == "" {
+		return errors.New("index: empty path")
+	}
+	if doc.SchemaVersion == 0 {
+		doc.SchemaVersion = SchemaVersion
+	}
+	dir := filepath.Dir(f.Path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	tmp, err := os.CreateTemp(dir, ".index-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, f.Path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
+// DefaultPath returns the user-level central index path under configHome
+// (typically ~/.config/skills-manage/index.json).
+func DefaultPath(configHome string) string {
+	if configHome == "" {
+		return ""
+	}
+	return filepath.Join(configHome, "skills-manage", "index.json")
+}
+
+func emptyDocument() Document {
+	return Document{
+		SchemaVersion: SchemaVersion,
+		Placeholders:  []PlaceholderRecord{},
+		RecycleIcon: Location{
+			Kind: LocDesktop,
+			Row:  1,
+			Col:  1,
+		},
+		BoxNameSeq: 1,
+	}
+}
+
+func cloneDocument(doc Document) Document {
+	out := doc
+	if doc.Placeholders != nil {
+		out.Placeholders = append([]PlaceholderRecord(nil), doc.Placeholders...)
+	} else {
+		out.Placeholders = []PlaceholderRecord{}
+	}
+	if doc.Skills != nil {
+		out.Skills = append([]SkillRecord(nil), doc.Skills...)
+	}
+	if doc.Boxes != nil {
+		out.Boxes = append([]BoxRecord(nil), doc.Boxes...)
+	}
+	if doc.RecycleBin != nil {
+		out.RecycleBin = append(json.RawMessage(nil), doc.RecycleBin...)
+	}
+	return out
+}

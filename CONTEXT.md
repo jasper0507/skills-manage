@@ -174,4 +174,4 @@ _Avoid_: 无视已验证交互另起炉灶、面向用户的一键清空布局
 - 技能管理生态：`docs/research/skills-management-landscape.md`  
 - 类似产品：`docs/research/similar-local-skill-inventory-projects.md`  
 - 桌面整理参考：Coodesker（酷呆桌面）多标签盒等公开能力  
-- 实现跟踪：GitHub Spec **#1**；票 **#2–#7**（frontier 为 **#2** Inventory）  
+- 实现跟踪：GitHub Spec **#1**；票 **#2–#7**（**#2–#3** done；frontier 为 **#4** Desktop boxes）  
