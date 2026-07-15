@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/jasper0507/skills-manage/internal/infra/index"
-	"github.com/jasper0507/skills-manage/internal/infra/quarantine"
 	"github.com/jasper0507/skills-manage/internal/infra/scanner"
 )
 
@@ -23,20 +21,10 @@ func New(cfg Config) *Workbench {
 	if st == nil {
 		st = index.NewMemoryStore()
 	}
-	q := cfg.Quarantine
-	if q == nil {
-		q = quarantine.New()
-	}
-	clock := cfg.Clock
-	if clock == nil {
-		clock = time.Now
-	}
 	return &Workbench{
 		scanRoots: append([]string(nil), cfg.ScanRoots...),
 		scan:      sc,
 		store:     st,
-		q:         q,
-		clock:     clock,
 	}
 }
 
@@ -57,7 +45,7 @@ func (w *Workbench) Inventory() (Inventory, error) {
 }
 
 // Open loads the central index, reconciles with a fresh scan (places only brand-new skills),
-// runs due purge for expired quarantine entries, and persists the desk.
+// and persists the desk. Does not run package purge or body-delete lifecycle.
 // Safe to call once at session start; subsequent sessions call Open again.
 func (w *Workbench) Open() error {
 	doc, err := w.store.Load()
@@ -69,12 +57,7 @@ func (w *Workbench) Open() error {
 	if err := w.reconcileFromScan(); err != nil {
 		return err
 	}
-	// Mark open before PurgeDue (which requires an open workbench).
 	w.opened = true
-	if err := w.purgeDueNoPersist(); err != nil {
-		w.opened = false
-		return err
-	}
 	if err := w.persist(); err != nil {
 		w.opened = false
 		return err

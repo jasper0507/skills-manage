@@ -74,24 +74,27 @@ type BoxRecord struct {
 	ActiveCompartmentID string              `json:"activeCompartmentId,omitempty"`
 }
 
-// Recycle entry lifecycle states.
+// Legacy body-delete recycle lifecycle states (pre-R2). Still unmarshaled so old
+// index files load; product R2 recycle is placeholders with Location.Kind=recycle.
+// E2.2 may strip these on Open; Workbench no longer drives package lifecycle from them.
 const (
 	RecycleStateQuarantined = "quarantined"
 	RecycleStatePurging     = "purging"
 	RecycleStatePurged      = "purged"
 )
 
-// RecycleEntry is one quarantined skill identity in the product recycle bin.
+// RecycleEntry is legacy body-delete metadata retained only for index compatibility.
+// R2 icon-bin members are PlaceholderRecords with Kind=recycle, not this table.
 type RecycleEntry struct {
 	ID             string    `json:"id"`
-	Identity       string    `json:"identity"` // original Skill 身份 (realpath)
+	Identity       string    `json:"identity"`
 	Name           string    `json:"name,omitempty"`
-	OriginalPath   string    `json:"originalPath"`
-	QuarantinePath string    `json:"quarantinePath"`
-	DeletedAt      time.Time `json:"deletedAt"`
-	PurgeAfter     time.Time `json:"purgeAfter"`
+	OriginalPath   string    `json:"originalPath,omitempty"`
+	QuarantinePath string    `json:"quarantinePath,omitempty"`
+	DeletedAt      time.Time `json:"deletedAt,omitempty"`
+	PurgeAfter     time.Time `json:"purgeAfter,omitempty"`
 	PlaceholderIDs []string  `json:"placeholderIds,omitempty"`
-	State          string    `json:"state"` // quarantined | purging | purged
+	State          string    `json:"state,omitempty"`
 }
 
 // Document is the full central index payload.

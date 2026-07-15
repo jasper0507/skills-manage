@@ -1,9 +1,13 @@
 # Safe recycle-bin / soft-delete / delayed permanent delete (local skill directories)
 
+> **Status for this repo:** Research for a **future skill-body delete** module.  
+> **v1 product** is **icon-only soft recycle** (placeholders only; no package isolate/`rm`). See root [`CONTEXT.md`](../../CONTEXT.md) and [`docs/adr/0001-v1-icon-only-recycle-bin.md`](../adr/0001-v1-icon-only-recycle-bin.md).  
+> Do **not** treat this note as a mandate to ship quarantine/purge in v1.
+
 **Date:** 2026-07-14  
-**Purpose:** Primary-source and well-known engineering practice for safely “recycling” **local directories** (especially developer tools that delete user packages/folders), so the skills-manager workbench can implement a 30-day recycle bin without silent data loss or accidental agent load of “deleted” skills.  
-**Product authority:** root [`CONTEXT.md`](../../CONTEXT.md) — recycle bin confirms, 30-day retention, then permanent delete of the skill directory; deletion safety (scan-root allowlist, realpath identity, multi-placeholder).  
-**User preference under discussion:** **Option B** — leave files at the original path, only mark pending-delete in the central index, then `rm` after 30 days. Question: is there a **safer design still close to B**?
+**Purpose:** Primary-source and well-known engineering practice for safely “recycling” **local directories** (especially developer tools that delete user packages/folders), so a later skills-manager module can implement a 30-day body-delete recycle bin without silent data loss or accidental agent load of “deleted” skills.  
+**Product authority (v1):** root [`CONTEXT.md`](../../CONTEXT.md) — icon-level bin only.  
+**Historical discussion:** **Option B** — leave files at the original path, only mark pending-delete in the central index, then `rm` after 30 days. Question: is there a **safer design still close to B**?
 
 **Method:** FreeDesktop Trash Specification and desktop OS trash behavior; CLI/API wrappers (`trash-cli`, `gio trash`, Electron `shell.trashItem`); package-manager multi-phase uninstall (apt/dpkg); database soft-delete / tombstone analogies; quarantine practice (AV). Web + official specs, 2026-07-14.
 

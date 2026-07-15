@@ -166,13 +166,14 @@ func TestPOSTMovePlaceholderToDesktop_CreatesBoxViaWorkbench(t *testing.T) {
 	}
 }
 
-func TestPOSTTrashPlan_MapsToWorkbench(t *testing.T) {
+func TestPOSTTrashPlan_MapsToWorkbenchR2(t *testing.T) {
 	srv, _ := openServer(t, "alpha")
 	code, state := doJSON(t, srv.Handler(), http.MethodGet, "/api/state", nil)
 	if code != http.StatusOK {
 		t.Fatal(code, state)
 	}
 	alpha := findPhByName(state, "alpha")
+	// Last live placeholder → skipped (R2), not body-delete.
 	code, plan := doJSON(t, srv.Handler(), http.MethodPost, "/api/trash/plan", map[string]any{
 		"placeholderIds": []string{alpha["id"].(string)},
 	})
@@ -180,19 +181,133 @@ func TestPOSTTrashPlan_MapsToWorkbench(t *testing.T) {
 		t.Fatalf("plan status = %d %v", code, plan)
 	}
 	// Empty branches encode as JSON arrays, not null (stable frontend contract).
-	if plan["iconOnlyIds"] == nil {
-		t.Fatal("iconOnlyIds must be [] not null")
-	}
-	bodyItems, ok := plan["bodyItems"].([]any)
+	enter, ok := plan["enterBinIds"].([]any)
 	if !ok {
-		t.Fatalf("bodyItems type = %T, want array (not null)", plan["bodyItems"])
+		t.Fatalf("enterBinIds type = %T, want array (not null)", plan["enterBinIds"])
 	}
-	if len(bodyItems) != 1 {
-		t.Fatalf("bodyItems = %v, want 1 (last placeholder)", bodyItems)
+	if len(enter) != 0 {
+		t.Fatalf("enterBinIds = %v, want empty for last live", enter)
 	}
-	item := bodyItems[0].(map[string]any)
-	if item["path"] == nil || item["path"] == "" {
-		t.Error("body trash plan must expose path for confirmation UI")
+	skipped, ok := plan["skippedIds"].([]any)
+	if !ok {
+		t.Fatalf("skippedIds type = %T, want array (not null)", plan["skippedIds"])
+	}
+	if len(skipped) != 1 {
+		t.Fatalf("skippedIds = %v, want 1 (last live)", skipped)
+	}
+	// Body-lifecycle fields must not be required for R2.
+	if _, has := plan["bodyItems"]; has {
+		t.Error("plan must not expose bodyItems (body-delete stripped)")
+	}
+}
+
+// HTTP smoke: non-last enter-bin → restore → empty match R2 Workbench post-conditions.
+func TestHTTP_RecycleTrashRestoreEmpty_R2(t *testing.T) {
+	srv, wb := openServer(t, "alpha")
+	code, state := doJSON(t, srv.Handler(), http.MethodGet, "/api/state", nil)
+	if code != http.StatusOK {
+		t.Fatal(code, state)
+	}
+	alpha := findPhByName(state, "alpha")
+	alphaID := alpha["id"].(string)
+	identity := alpha["identity"].(string)
+
+	// Copy so we have a non-last placeholder to enter the bin.
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/clipboard/set", map[string]any{
+		"mode":           "copy",
+		"placeholderIds": []string{alphaID},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("clipboard set: %d %v", code, state)
+	}
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/clipboard/paste-desktop", map[string]any{
+		"row": 5,
+		"col": 2,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("paste: %d %v", code, state)
+	}
+	var copyID string
+	for _, p := range deskPlaceholders(state) {
+		if p["id"] != alphaID {
+			copyID = p["id"].(string)
+			break
+		}
+	}
+	if copyID == "" {
+		t.Fatal("missing copy after paste")
+	}
+
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/trash/confirm", map[string]any{
+		"placeholderIds": []string{copyID},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("confirm trash: %d %v", code, state)
+	}
+	bin, _ := state["recycleBin"].([]any)
+	if len(bin) != 1 {
+		t.Fatalf("recycleBin after confirm = %v, want 1", bin)
+	}
+	entry := bin[0].(map[string]any)
+	if entry["id"] != copyID {
+		t.Errorf("bin id = %v, want %s", entry["id"], copyID)
+	}
+	// No body lifecycle fields required.
+	if entry["quarantinePath"] != nil && entry["quarantinePath"] != "" {
+		t.Errorf("R2 bin must not require quarantinePath: %v", entry)
+	}
+	// Package still on disk; Workbench agrees.
+	if _, err := os.Stat(filepath.Join(identity, "SKILL.md")); err != nil {
+		t.Fatalf("package missing after icon trash: %v", err)
+	}
+	if n := len(wb.RecycleBin()); n != 1 {
+		t.Fatalf("Workbench bin = %d, want 1", n)
+	}
+
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/recycle/restore", map[string]any{
+		"entryId": copyID,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("restore: %d %v", code, state)
+	}
+	bin, _ = state["recycleBin"].([]any)
+	if len(bin) != 0 {
+		t.Fatalf("bin after restore = %v, want empty", bin)
+	}
+	foundDesktop := false
+	for _, p := range deskPlaceholders(state) {
+		if p["id"] == copyID {
+			loc := p["location"].(map[string]any)
+			if loc["kind"] != "desktop" {
+				t.Errorf("restored kind = %v, want desktop", loc["kind"])
+			}
+			foundDesktop = true
+		}
+	}
+	if !foundDesktop {
+		t.Error("restored placeholder not on desk")
+	}
+
+	// Re-trash and empty.
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/trash/confirm", map[string]any{
+		"placeholderIds": []string{copyID},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("re-trash: %d %v", code, state)
+	}
+	code, state = doJSON(t, srv.Handler(), http.MethodPost, "/api/recycle/empty", nil)
+	if code != http.StatusOK {
+		t.Fatalf("empty: %d %v", code, state)
+	}
+	bin, _ = state["recycleBin"].([]any)
+	if len(bin) != 0 {
+		t.Fatalf("bin after empty = %v", bin)
+	}
+	if _, err := os.Stat(filepath.Join(identity, "SKILL.md")); err != nil {
+		t.Fatalf("package deleted by empty: %v", err)
+	}
+	if n := len(wb.RecycleBin()); n != 0 {
+		t.Fatalf("Workbench bin after empty = %d", n)
 	}
 }
 

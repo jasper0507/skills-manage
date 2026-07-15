@@ -1,10 +1,7 @@
 package workbench
 
 import (
-	"time"
-
 	"github.com/jasper0507/skills-manage/internal/infra/index"
-	"github.com/jasper0507/skills-manage/internal/infra/quarantine"
 	"github.com/jasper0507/skills-manage/internal/infra/scanner"
 )
 
@@ -123,9 +120,6 @@ type Desk struct {
 	SelectedIDs  []string      `json:"selectedIds"`
 }
 
-// Retention is how long quarantined skills remain restorable before purge-due.
-const RecycleRetention = 30 * 24 * time.Hour
-
 // Config configures a Workbench.
 type Config struct {
 	// ScanRoots are filesystem roots to walk for skill packages.
@@ -137,12 +131,6 @@ type Config struct {
 
 	// Index is the 中央索引 store. Nil uses an in-memory store (ephemeral).
 	Index index.Store
-
-	// Quarantine isolates skill packages on body-delete. Nil uses the real FS adapter.
-	Quarantine quarantine.Adapter
-
-	// Clock returns "now" for 30-day retention. Nil uses time.Now.
-	Clock func() time.Time
 }
 
 // Workbench is the sole primary product seam.
@@ -150,8 +138,6 @@ type Workbench struct {
 	scanRoots []string
 	scan      scanner.Scanner
 	store     index.Store
-	q         quarantine.Adapter
-	clock     func() time.Time
 
 	doc    index.Document
 	opened bool

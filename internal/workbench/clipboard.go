@@ -318,5 +318,3 @@ func (w *Workbench) MovePlaceholdersToBox(placeholderIDs []string, boxID, compar
 	}
 	return w.persist()
 }
-
-// CreateSimpleBox places an empty 普通盒子 at (x,y), nudged off desktop skill icons.

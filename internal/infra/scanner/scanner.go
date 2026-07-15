@@ -9,8 +9,9 @@ import (
 	"strings"
 )
 
-// quarantineDirName is excluded from live inventory (per-scan-root isolation).
-const quarantineDirName = ".skills-manage-trash"
+// trashDirName is excluded from live inventory (defensive: legacy body-delete trees
+// under scan roots must not reappear as product skills).
+const trashDirName = ".skills-manage-trash"
 
 // Skill is a package discovered on disk.
 type Skill struct {
@@ -32,7 +33,7 @@ func New() Scanner {
 }
 
 // Scan walks each root, finds directories containing SKILL.md, collapses
-// identity by realpath, and skips quarantine locations.
+// identity by realpath, and skips legacy trash trees.
 func (FSScanner) Scan(roots []string) ([]Skill, error) {
 	byID := make(map[string]Skill)
 	var order []string
@@ -88,7 +89,7 @@ func walkRoot(root string, byID map[string]Skill, order *[]string) error {
 		}
 
 		name := d.Name()
-		if name == quarantineDirName {
+		if name == trashDirName {
 			// SkipDir only on real directories; on non-dirs it would skip siblings.
 			if d.IsDir() {
 				return filepath.SkipDir
