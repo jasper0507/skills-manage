@@ -26,6 +26,14 @@ _Avoid_: 复制 Skill 目录、把路径字符串当唯一 UI
 以规范化 **realpath** 唯一标识；多软链合并为同一 Skill。
 _Avoid_: 仅目录名、仅 frontmatter name、内容哈希、UUID（v1）
 
+**成员关系（Membership）**:
+某枚占位是否属于某一 **普通盒** 或 **组合盒隔间**；**一枚占位至多一处**。盒内「有哪些图标」以成员关系为唯一真相。同一 Skill 要出现在多个盒中 → **复制**出多枚占位（多身份入口），不是一枚占位挂多个容器。
+_Avoid_: 一枚占位多处挂载、成员关系与「在盒位置」各记一份互相打架
+
+**占位安置（Placement）**:
+占位不在盒内时的落点：要么在 **桌面图标网格**（有行列），要么在 **回收站站内**（图标级进站）。在盒内时，安置由 **成员关系** 表达，不再平行维护一套「在某盒」的第二真相。工作台视图可把成员关系呈现为「在盒中」，供人阅读。
+_Avoid_: 盒内再存一份可与成员关系冲突的位置记录、用位置字段反推盒内名单
+
 ### 桌面隐喻（已验证）
 
 **桌面（Desktop）**:
@@ -134,8 +142,8 @@ _Avoid_: 只扫单一路径且不可配置
 _Avoid_: 每次全量重排
 
 **中央索引（Index）**:
-用户级 **单文件 JSON**（如 `~/.config/skills-manage/index.json`）：身份、盒子/隔间/标题、占位引用、网格坐标、回收站图标位置、站内占位（`kind=recycle` 等）。不写 Skill 包内。原子写（temp→rename）。本机 skill 数量有限，v1 不上 SQLite。v1 **不**持久化本体隔离/quarantine 删包元数据；读到旧版隔离字段可忽略并剥离。
-_Avoid_: sidecar 改 SKILL.md、v1 默认 SQLite
+用户级 **单文件 JSON**（如 `~/.config/skills-manage/index.json`）：Skill 身份与名称缓存、盒子/隔间/标题、**成员关系**（盒/隔间内的占位 id 列表）、桌面网格坐标、回收站系统图标位置、站内占位标记。不写 Skill 包内。原子写（temp→rename）。本机 skill 数量有限，v1 不上 SQLite。v1 **不**持久化本体隔离/quarantine 删包元数据；读到旧版隔离字段可忽略并剥离。盒内成员以成员关系为准，不为盒内占位再存一套可冲突的「在盒」位置。
+_Avoid_: sidecar 改 SKILL.md、v1 默认 SQLite、成员关系与盒内位置双源真相
 
 ### 产品与实现
 
@@ -169,8 +177,10 @@ _Avoid_: 无视已验证交互另起炉灶、面向用户的一键清空布局
 - 负例原型（**已否决**，勿当 v1 实现）：`prototypes/tag-pick-flow/`（CLI 标签 + 挑选 → 剪贴板）  
 - 删除安全调研（**本体真删后续**；v1 仅图标级回收站）：`docs/research/safe-recycle-bin-deletion.md`  
 - 架构决策：`docs/adr/0001-v1-icon-only-recycle-bin.md`（v1 图标级软回收、禁止本体删除）  
+- 架构决策：`docs/adr/0002-membership-truth-placement-projection.md`（成员关系真源；盒内不落第二套位置）  
 
 - 技能管理生态：`docs/research/skills-management-landscape.md`  
 - 类似产品：`docs/research/similar-local-skill-inventory-projects.md`  
 - 桌面整理参考：Coodesker（酷呆桌面）多标签盒等公开能力  
-- 实现跟踪：GitHub Spec **#1** 与票 **#2–#7** 的 v1 领域/HTTP 路径已落地；前端交互未定稿，见 `README.md` / `AGENTS.md` 阶段说明  
+- 实现跟踪：GitHub E2（#8–#11）已落地；成员关系投影化为后续工作包；前端完整 redesign 未定稿，见 `README.md` / `AGENTS.md`  
+
