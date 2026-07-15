@@ -17,7 +17,7 @@ func newWB(t *testing.T, roots []string, store index.Store) *workbench.Workbench
 	})
 }
 
-func TestDesk_DefaultLayout_RecycleAt11_UnfiledStackBelow(t *testing.T) {
+func TestDesk_DefaultLayout_RecycleAt11_RowMajorWithinViewport(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, filepath.Join(root, "alpha"), "alpha")
 	writeSkill(t, filepath.Join(root, "beta"), "beta")
@@ -41,34 +41,72 @@ func TestDesk_DefaultLayout_RecycleAt11_UnfiledStackBelow(t *testing.T) {
 		t.Fatalf("got %d placeholders, want 2: %+v", len(desk.Placeholders), desk.Placeholders)
 	}
 
-	// Unfiled skills stack in column 1 from row 2 downward (scan order).
+	// Row-major one-screen fill: recycle occupies (1,1); skills take (1,2), (1,3), …
+	// Not a tall first-column stack.
 	byName := map[string]workbench.Placeholder{}
 	for _, p := range desk.Placeholders {
 		byName[p.Name] = p
 		if p.Location.Kind != workbench.LocDesktop {
 			t.Errorf("%s location kind = %q, want desktop", p.Name, p.Location.Kind)
 		}
-		if p.Location.Col != 1 {
-			t.Errorf("%s col = %d, want 1", p.Name, p.Location.Col)
+		if p.Location.Row < 1 || p.Location.Col < 1 {
+			t.Errorf("%s invalid cell %+v", p.Name, p.Location)
 		}
-		if p.Location.Row < 2 {
-			t.Errorf("%s row = %d, want >= 2 (below recycle)", p.Name, p.Location.Row)
+		if p.Location.Row > workbench.DefaultViewportRows || p.Location.Col > workbench.DefaultViewportCols {
+			t.Errorf("%s at (%d,%d) outside default viewport %dx%d",
+				p.Name, p.Location.Row, p.Location.Col,
+				workbench.DefaultViewportRows, workbench.DefaultViewportCols)
 		}
 	}
-	if byName["alpha"].Location.Row == byName["beta"].Location.Row {
-		t.Errorf("alpha and beta share row %d; want distinct stacked rows", byName["alpha"].Location.Row)
+	// Two free cells after recycle: (1,2) and (1,3) in scan order.
+	wantCells := map[string]struct{ row, col int }{
+		"alpha": {1, 2},
+		"beta":  {1, 3},
 	}
-	// Strict stack order: first discovered at row 2, second at row 3.
-	rows := []int{byName["alpha"].Location.Row, byName["beta"].Location.Row}
-	if !(rows[0] == 2 && rows[1] == 3) && !(rows[0] == 3 && rows[1] == 2) {
-		// Accept either discovery order but consecutive from 2.
-		min, max := rows[0], rows[1]
-		if min > max {
-			min, max = max, min
+	for name, want := range wantCells {
+		got := byName[name].Location
+		if got.Row != want.row || got.Col != want.col {
+			t.Errorf("%s at (%d,%d), want (%d,%d) row-major after recycle",
+				name, got.Row, got.Col, want.row, want.col)
 		}
-		if min != 2 || max != 3 {
-			t.Errorf("rows = %v, want {2,3}", rows)
+	}
+	// Must not stack both in column 1.
+	if byName["alpha"].Location.Col == 1 && byName["beta"].Location.Col == 1 {
+		t.Error("both skills in col 1; default layout must fill across the row")
+	}
+}
+
+func TestDesk_DefaultLayout_FillsAcrossNotOnlyColumn1(t *testing.T) {
+	root := t.TempDir()
+	// More skills than one row of leftover cells after recycle: cols 2..12 = 11 cells on row 1.
+	names := make([]string, 0, 14)
+	for i := 0; i < 14; i++ {
+		n := fmt.Sprintf("s%02d", i)
+		names = append(names, n)
+		writeSkill(t, filepath.Join(root, n), n)
+	}
+	wb := newWB(t, []string{root}, index.NewMemoryStore())
+	if err := wb.Open(); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	desk := wb.Desk()
+	if len(desk.Placeholders) != 14 {
+		t.Fatalf("got %d placeholders, want 14", len(desk.Placeholders))
+	}
+	cols := map[int]int{}
+	rows := map[int]int{}
+	for _, p := range desk.Placeholders {
+		cols[p.Location.Col]++
+		rows[p.Location.Row]++
+		if p.Location.Col > workbench.DefaultViewportCols {
+			t.Errorf("%s col %d > viewport", p.Name, p.Location.Col)
 		}
+	}
+	if len(cols) < 2 {
+		t.Fatalf("used only cols %v; want multi-column fill", cols)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("used only rows %v; 14 skills should wrap to row 2+", rows)
 	}
 }
 

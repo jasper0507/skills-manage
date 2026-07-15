@@ -325,6 +325,22 @@ async function onPointerUp(ev) {
       return;
     }
 
+    if (pd.kind === "recycle") {
+      if (boxEl) {
+        const boxId = boxEl.dataset.boxId;
+        const box = boxById(boxId);
+        const cmp = box?.kind === "composite" ? box.activeCompartmentId : "";
+        await mut("/api/recycle/move-box", {
+          boxId,
+          compartmentId: cmp || "",
+        });
+        return;
+      }
+      const cell = pxToCell(pt.x - 30, pt.y - 30);
+      await mut("/api/recycle/move-desktop", { row: cell.row, col: cell.col });
+      return;
+    }
+
     if (pd.kind === "compartment") {
       const [boxId, cmpId] = pd.id.split("::");
       await mut("/api/boxes/eject", {
@@ -443,13 +459,22 @@ function recycleIconEl() {
     "app-icon system-icon recycle-icon" + (loc.kind === "desktop" ? " free" : " in-box");
   el.dataset.dragId = `recycle:bin`;
   el.innerHTML = `<div class="glyph bin-glyph">🗑</div><div class="name">回收站</div>`;
-  el.title = "系统图标：右键可清空；不可复制/剪切/删除";
+  el.title = "系统图标：可拖动/入盒；右键可清空；不可复制/剪切/删除";
 
   if (loc.kind === "desktop") {
     const px = cellToPx(loc.row || 1, loc.col || 1);
     el.style.left = `${px.x}px`;
     el.style.top = `${px.y}px`;
   }
+
+  el.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    const px =
+      loc.kind === "desktop"
+        ? cellToPx(loc.row || 1, loc.col || 1)
+        : { x: 0, y: 0 };
+    startPointerDrag("recycle", "bin", ev, px.x, px.y);
+  });
 
   el.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();

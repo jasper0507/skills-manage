@@ -77,6 +77,15 @@ const (
 	boxSnapGrid     = 16
 )
 
+// Default one-screen viewport for auto-placement of new unfiled 占位.
+// Approx desktop area: origin+(cols*cellW) ≈ 16+12*90 = 1096px wide,
+// origin+(rows*cellH) ≈ 16+8*96 = 784px tall — fits a single typical workbench view
+// without stacking an endless first column.
+const (
+	DefaultViewportCols = 12
+	DefaultViewportRows = 8
+)
+
 // Compartment is one 隔间 of a composite box, with contained placeholders as icons.
 type Compartment struct {
 	ID    string        `json:"id"`
@@ -1118,13 +1127,14 @@ func (w *Workbench) reconcileFromScan() error {
 		if have[s.Identity] {
 			continue
 		}
-		cell := nextFreeCell(occupied, 1, 2)
-		occupied[cell] = true
+		// Row-major within one-screen viewport (not a tall first-column stack).
+		c := nextFreeCellInViewport(occupied)
+		occupied[c] = true
 		id := w.newPlaceholderID()
 		w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
 			ID:       id,
 			Identity: s.Identity,
-			Location: index.Location{Kind: LocDesktop, Row: cell.row, Col: cell.col},
+			Location: index.Location{Kind: LocDesktop, Row: c.row, Col: c.col},
 		})
 		have[s.Identity] = true
 	}
@@ -1153,7 +1163,7 @@ func (w *Workbench) occupiedDesktopCells() map[cell]bool {
 }
 
 // nextFreeCell prefers preferCol from startRow downward, then row-major free cells.
-// Recycle and skill placeholders both occupy cells; no two skill icons share a cell.
+// Used near a drop target (user intent). New unfiled skills use nextFreeCellInViewport.
 func nextFreeCell(occupied map[cell]bool, preferCol, startRow int) cell {
 	if preferCol < 1 {
 		preferCol = 1
@@ -1177,6 +1187,30 @@ func nextFreeCell(occupied map[cell]bool, preferCol, startRow int) cell {
 	}
 	// Pathological full grid; still return something deterministic.
 	return cell{startRow, preferCol}
+}
+
+// nextFreeCellInViewport picks the next free cell in row-major order within the
+// default one-screen grid (cols left→right, then next row). Overflow continues
+// row-major beyond DefaultViewportRows so placement never blocks.
+func nextFreeCellInViewport(occupied map[cell]bool) cell {
+	for row := 1; row <= DefaultViewportRows; row++ {
+		for col := 1; col <= DefaultViewportCols; col++ {
+			c := cell{row, col}
+			if !occupied[c] {
+				return c
+			}
+		}
+	}
+	// Viewport full: extend downward row-major at full viewport width.
+	for row := DefaultViewportRows + 1; row < DefaultViewportRows+10_000; row++ {
+		for col := 1; col <= DefaultViewportCols; col++ {
+			c := cell{row, col}
+			if !occupied[c] {
+				return c
+			}
+		}
+	}
+	return cell{1, 1}
 }
 
 func (w *Workbench) newPlaceholderID() string {
@@ -1610,6 +1644,61 @@ func (w *Workbench) RecycleIconAction(action string) error {
 	}
 }
 
+// MoveRecycleToDesktop places the 回收站 system icon on a desktop grid cell.
+// If the cell is occupied by a skill icon, the recycle icon takes the nearest free cell
+// (it never auto-boxes with a skill).
+func (w *Workbench) MoveRecycleToDesktop(row, col int) error {
+	if err := w.requireOpen(); err != nil {
+		return err
+	}
+	if row < 1 || col < 1 {
+		return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
+	}
+	// Park recycle so it does not block free-cell search for its own move.
+	w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
+	occupied := w.occupiedDesktopCells()
+	free := cell{row, col}
+	if occupied[free] {
+		free = nextFreeCell(occupied, col, row)
+	}
+	w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
+	return w.persist()
+}
+
+// MoveRecycleToBox puts the 回收站 system icon into a box (simple or current/compartment).
+func (w *Workbench) MoveRecycleToBox(boxID, compartmentID string) error {
+	if err := w.requireOpen(); err != nil {
+		return err
+	}
+	bIdx, ok := w.boxIndex(boxID)
+	if !ok {
+		return fmt.Errorf("unknown box %q", boxID)
+	}
+	box := &w.doc.Boxes[bIdx]
+	loc := index.Location{Kind: LocBox, BoxID: boxID}
+	if box.Kind == BoxSimple {
+		loc.CompartmentID = ""
+	} else {
+		cid := compartmentID
+		if cid == "" {
+			cid = box.ActiveCompartmentID
+		}
+		found := false
+		for _, c := range box.Compartments {
+			if c.ID == cid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("unknown compartment %q in box %q", cid, boxID)
+		}
+		loc.CompartmentID = cid
+	}
+	w.doc.RecycleIcon = loc
+	return w.persist()
+}
+
 // BodyTrashPlan is one skill identity that will enter body quarantine on ConfirmTrash.
 // Path is the realpath shown in the confirmation UI.
 type BodyTrashPlan struct {
@@ -1936,7 +2025,7 @@ func (w *Workbench) Restore(entryID string) error {
 	}
 
 	occupied := w.occupiedDesktopCells()
-	free := nextFreeCell(occupied, 1, 2)
+	free := nextFreeCellInViewport(occupied)
 	if keepID != "" {
 		if idx, ok := w.placeholderIndex(keepID); ok {
 			w.doc.Placeholders[idx].Location = index.Location{

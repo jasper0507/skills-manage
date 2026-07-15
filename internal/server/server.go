@@ -62,6 +62,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/trash/confirm", s.handleConfirmTrash)
 	mux.HandleFunc("POST /api/recycle/restore", s.handleRestore)
 	mux.HandleFunc("POST /api/recycle/empty", s.handleEmptyRecycle)
+	mux.HandleFunc("POST /api/recycle/move-desktop", s.handleMoveRecycleDesktop)
+	mux.HandleFunc("POST /api/recycle/move-box", s.handleMoveRecycleBox)
 
 	if s.static != nil {
 		fileServer := http.FileServer(http.FS(s.static))
@@ -566,6 +568,46 @@ func (s *Server) handleEmptyRecycle(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.wb.EmptyRecycleBin(); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeState(w)
+}
+
+type moveRecycleDesktopReq struct {
+	Row int `json:"row"`
+	Col int `json:"col"`
+}
+
+func (s *Server) handleMoveRecycleDesktop(w http.ResponseWriter, r *http.Request) {
+	var req moveRecycleDesktopReq
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.wb.MoveRecycleToDesktop(req.Row, req.Col); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeState(w)
+}
+
+type moveRecycleBoxReq struct {
+	BoxID         string `json:"boxId"`
+	CompartmentID string `json:"compartmentId"`
+}
+
+func (s *Server) handleMoveRecycleBox(w http.ResponseWriter, r *http.Request) {
+	var req moveRecycleBoxReq
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.wb.MoveRecycleToBox(req.BoxID, req.CompartmentID); err != nil {
 		s.writeErr(w, http.StatusBadRequest, err)
 		return
 	}

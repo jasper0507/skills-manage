@@ -423,6 +423,53 @@ func TestRecycle_SystemIconCannotBeCopiedCutOrDeleted(t *testing.T) {
 	}
 }
 
+func TestRecycle_MoveToDesktopAndIntoBox(t *testing.T) {
+	wb, _ := openDeskWithSkills(t, "alpha")
+	// Free cell far from defaults.
+	if err := wb.MoveRecycleToDesktop(4, 5); err != nil {
+		t.Fatalf("MoveRecycleToDesktop: %v", err)
+	}
+	desk := wb.Desk()
+	if desk.RecycleIcon.Location.Kind != workbench.LocDesktop ||
+		desk.RecycleIcon.Location.Row != 4 || desk.RecycleIcon.Location.Col != 5 {
+		t.Fatalf("recycle at %+v, want desktop (4,5)", desk.RecycleIcon.Location)
+	}
+
+	// Occupied cell: nudge to free (alpha is on desk somewhere).
+	alpha := phByName(t, desk, "alpha")
+	if err := wb.MoveRecycleToDesktop(alpha.Location.Row, alpha.Location.Col); err != nil {
+		t.Fatalf("MoveRecycleToDesktop onto skill: %v", err)
+	}
+	desk = wb.Desk()
+	r := desk.RecycleIcon.Location
+	if r.Kind != workbench.LocDesktop {
+		t.Fatalf("kind=%q", r.Kind)
+	}
+	if r.Row == alpha.Location.Row && r.Col == alpha.Location.Col {
+		t.Fatal("recycle must not share a skill cell")
+	}
+
+	id, err := wb.CreateSimpleBox("有回收站", 300, 200)
+	if err != nil {
+		t.Fatalf("CreateSimpleBox: %v", err)
+	}
+	if err := wb.MoveRecycleToBox(id, ""); err != nil {
+		t.Fatalf("MoveRecycleToBox: %v", err)
+	}
+	desk = wb.Desk()
+	if desk.RecycleIcon.Location.Kind != workbench.LocBox || desk.RecycleIcon.Location.BoxID != id {
+		t.Fatalf("recycle in box: %+v", desk.RecycleIcon.Location)
+	}
+
+	// Back to desktop.
+	if err := wb.MoveRecycleToDesktop(2, 8); err != nil {
+		t.Fatal(err)
+	}
+	if wb.Desk().RecycleIcon.Location.Kind != workbench.LocDesktop {
+		t.Fatal("expected desktop after move out of box")
+	}
+}
+
 func TestClipboard_PasteEmptyFails(t *testing.T) {
 	wb, _ := openDeskWithSkills(t, "alpha")
 	if err := wb.PasteToDesktop(3, 3); err == nil {
