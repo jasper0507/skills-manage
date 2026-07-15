@@ -5,34 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jasper0507/skills-manage/internal/infra/index"
 	"github.com/jasper0507/skills-manage/internal/workbench"
 )
-
-func openDeskWithSkills(t *testing.T, names ...string) (*workbench.Workbench, index.Store) {
-	t.Helper()
-	root := t.TempDir()
-	for _, n := range names {
-		writeSkill(t, filepath.Join(root, n), n)
-	}
-	store := index.NewMemoryStore()
-	wb := newWB(t, []string{root}, store)
-	if err := wb.Open(); err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	return wb, store
-}
-
-func phByName(t *testing.T, desk workbench.Desk, name string) workbench.Placeholder {
-	t.Helper()
-	for _, p := range desk.Placeholders {
-		if p.Name == name {
-			return p
-		}
-	}
-	t.Fatalf("placeholder %q not found", name)
-	return workbench.Placeholder{}
-}
 
 func TestBox_IconOnIcon_CreatesSequencedSimpleBox(t *testing.T) {
 	wb, _ := openDeskWithSkills(t, "alpha", "beta")

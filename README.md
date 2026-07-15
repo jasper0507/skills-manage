@@ -32,15 +32,18 @@ go build -o ./skills-manage ./cmd/skills-manage
 cmd/skills-manage/main.go     # 入口，只调用 internal/app
 config/                       # 配置解析与默认值（扫描根、索引路径、listen）
 internal/
-  app/                        # 组装配置 + Workbench + 命令（inventory/desk/serve）
+  app/                        # 组装：Run + inventory/desk/serve 命令
   workbench/                  # 领域门面（唯一产品主缝 / 主测缝）
-  server/                     # 薄 HTTP：路由、handler、短生命周期 Run
+    types.go, workbench.go, layout.go, desk.go, box.go, clipboard.go, recycle.go
+  server/                     # 薄 HTTP：router + handlers_* + listen/run
   ui/                         # 嵌入静态前端
   infra/
     scanner/                  # 扫描根 → realpath 身份
     index/                    # 中央索引 JSON 原子读写
     quarantine/               # 同盘 rename 隔离 / 还原 / 真删
 ```
+
+设计原则：包按依赖方向向下（cmd → app → workbench/server；workbench → infra）。**Workbench 保持深模块门面**，不拆成 handler/service/repo 三层。同包按关注点拆文件，便于阅读，不增加耦合。
 
 | 你参考的模板 | 本仓库对应 |
 |--------------|------------|

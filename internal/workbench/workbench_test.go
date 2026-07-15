@@ -9,30 +9,6 @@ import (
 	"github.com/jasper0507/skills-manage/internal/workbench"
 )
 
-func writeSkill(t *testing.T, dir, frontmatterName string) {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	content := "---\nname: " + frontmatterName + "\ndescription: test skill\n---\n\n# Body\n"
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustRealpath(t *testing.T, path string) string {
-	t.Helper()
-	rp, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	abs, err := filepath.Abs(rp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return abs
-}
-
 func TestInventory_DiscoversSkillPackageUnderScanRoot(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "hello-skill")

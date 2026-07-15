@@ -1,4 +1,5 @@
 // Package index is the central index (中央索引) adapter: load/save one user-level document.
+// Injected into workbench.Config; product code should not invent a second write path.
 package index
 
 import (

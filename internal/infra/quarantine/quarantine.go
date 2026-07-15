@@ -1,4 +1,5 @@
 // Package quarantine isolates skill packages out of live scan paths via same-FS rename.
+// Invoked only through the Workbench body-delete lifecycle (not a second product seam).
 package quarantine
 
 import (

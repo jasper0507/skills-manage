@@ -1,4 +1,5 @@
 // Package scanner discovers local Skill packages under scan roots.
+// Used only as an adapter injected into workbench.Config (not a product seam).
 package scanner
 
 import (

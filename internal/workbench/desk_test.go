@@ -9,14 +9,6 @@ import (
 	"github.com/jasper0507/skills-manage/internal/workbench"
 )
 
-func newWB(t *testing.T, roots []string, store index.Store) *workbench.Workbench {
-	t.Helper()
-	return workbench.New(workbench.Config{
-		ScanRoots: roots,
-		Index:     store,
-	})
-}
-
 func TestDesk_DefaultLayout_RecycleAt11_RowMajorWithinViewport(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, filepath.Join(root, "alpha"), "alpha")
@@ -362,8 +354,4 @@ func TestDesk_Rescan_PreservesBoxesMetadata(t *testing.T) {
 	if doc.BoxNameSeq != 3 {
 		t.Errorf("boxNameSeq = %d, want 3", doc.BoxNameSeq)
 	}
-}
-
-func fmtCell(row, col int) string {
-	return fmt.Sprintf("%d,%d", row, col)
 }
