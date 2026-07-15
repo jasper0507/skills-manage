@@ -82,18 +82,15 @@ func (w *Workbench) composeSimpleIntoSimpleNoPersist(sIdx, tIdx int) error {
 		ItemIDs: append([]string(nil), src.ItemIDs...),
 	}
 
+	// ItemIDs already list members; keep placement empty (no LocBox dual-write).
 	for _, phID := range c1.ItemIDs {
 		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{
-				Kind: LocBox, BoxID: tgt.ID, CompartmentID: c1.ID,
-			}
+			w.doc.Placeholders[i].Location = index.Location{}
 		}
 	}
 	for _, phID := range c2.ItemIDs {
 		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{
-				Kind: LocBox, BoxID: tgt.ID, CompartmentID: c2.ID,
-			}
+			w.doc.Placeholders[i].Location = index.Location{}
 		}
 	}
 
@@ -135,11 +132,10 @@ func (w *Workbench) addSimpleToCompositeNoPersist(sIdx, tIdx int) error {
 		Tag:     tag,
 		ItemIDs: append([]string(nil), src.ItemIDs...),
 	}
+	// Membership moved with ItemIDs; clear placement (no LocBox dual-write).
 	for _, phID := range c.ItemIDs {
 		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{
-				Kind: LocBox, BoxID: tgt.ID, CompartmentID: c.ID,
-			}
+			w.doc.Placeholders[i].Location = index.Location{}
 		}
 	}
 	r := &w.doc.RecycleIcon
@@ -253,9 +249,10 @@ func (w *Workbench) EjectCompartment(compositeBoxID, compartmentID string, x, y 
 			H:       defaultSimpleBoxH,
 			ItemIDs: append([]string(nil), comp.ItemIDs...),
 		}
+		// Membership is the new simple box's ItemIDs; no LocBox dual-write.
 		for _, phID := range newBox.ItemIDs {
 			if i, ok := w.placeholderIndex(phID); ok {
-				w.doc.Placeholders[i].Location = index.Location{Kind: LocBox, BoxID: newID}
+				w.doc.Placeholders[i].Location = index.Location{}
 			}
 		}
 		r := &w.doc.RecycleIcon
@@ -293,9 +290,10 @@ func (w *Workbench) demoteCompositeIfSingle(bIdx int) {
 	box.ActiveCompartmentID = ""
 	box.W = defaultSimpleBoxW
 	box.H = defaultSimpleBoxH
+	// Demote keeps ItemIDs membership; clear placement (no LocBox dual-write).
 	for _, phID := range box.ItemIDs {
 		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{Kind: LocBox, BoxID: box.ID}
+			w.doc.Placeholders[i].Location = index.Location{}
 		}
 	}
 	r := &w.doc.RecycleIcon

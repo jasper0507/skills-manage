@@ -32,11 +32,10 @@ func (w *Workbench) movePlaceholdersToDesktopNoPersist(placeholderIDs []string, 
 		if id == "" || seen[id] {
 			continue
 		}
-		idx, ok := w.placeholderIndex(id)
-		if !ok {
+		if _, ok := w.placeholderIndex(id); !ok {
 			return fmt.Errorf("unknown placeholder %q", id)
 		}
-		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+		if w.placeholderInRecycle(id) {
 			return fmt.Errorf("cannot move placeholder in recycle")
 		}
 		seen[id] = true
@@ -91,11 +90,13 @@ func (w *Workbench) skillAtDesktopCellExcluding(row, col int, excludePhIDs []str
 }
 
 func (w *Workbench) skillAtDesktopCellExcludeMap(row, col int, exclude map[string]bool) (string, bool) {
+	// Icon-on-icon uses true desktop placement only (membership, not LocBox).
+	membership := w.membershipByPlaceholder()
 	for _, p := range w.doc.Placeholders {
 		if exclude[p.ID] {
 			continue
 		}
-		if p.Location.Kind != LocDesktop {
+		if !isDesktopGridPlacement(p, membership) {
 			continue
 		}
 		if p.Location.Row == row && p.Location.Col == col {
@@ -200,12 +201,9 @@ func (w *Workbench) mergeIconsIntoAutoBoxNoPersist(phIDs []string, nearRow, near
 		if !ok {
 			continue
 		}
-		// Membership + Location together (ItemIDs is membership truth).
+		// Membership is the only in-box truth; clear placement (no LocBox dual-write).
 		box.ItemIDs = append(box.ItemIDs, id)
-		w.doc.Placeholders[idx].Location = index.Location{
-			Kind:  LocBox,
-			BoxID: boxID,
-		}
+		w.doc.Placeholders[idx].Location = index.Location{}
 	}
 	w.doc.Boxes = append(w.doc.Boxes, box)
 	return nil

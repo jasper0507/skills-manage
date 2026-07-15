@@ -1,5 +1,7 @@
 package workbench
 
+import "github.com/jasper0507/skills-manage/internal/infra/index"
+
 type point struct{ x, y float64 }
 
 // findBoxPosWithoutIconOverlap snaps (x,y) and nudges until the box rectangle
@@ -29,8 +31,10 @@ func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64, ex
 
 func (w *Workbench) boxPosOK(x, y, width, height float64, excludeBoxID string) bool {
 	rect := rect{x, y, width, height}
+	// Only true desktop placements collide; box members are membership-only.
+	membership := w.membershipByPlaceholder()
 	for _, p := range w.doc.Placeholders {
-		if p.Location.Kind != LocDesktop {
+		if !isDesktopGridPlacement(p, membership) {
 			continue
 		}
 		if rectsOverlap(rect, iconRectAtCell(p.Location.Row, p.Location.Col), 2) {
@@ -39,7 +43,7 @@ func (w *Workbench) boxPosOK(x, y, width, height float64, excludeBoxID string) b
 	}
 	if w.doc.RecycleIcon.Kind == LocDesktop {
 		r := w.doc.RecycleIcon
-		if rectsOverlap(rect, iconRectAtCell(r.Row, r.Col), 2) {
+		if r.Row >= 1 && r.Col >= 1 && rectsOverlap(rect, iconRectAtCell(r.Row, r.Col), 2) {
 			return false
 		}
 	}
@@ -91,16 +95,32 @@ type cell struct {
 
 func (w *Workbench) occupiedDesktopCells() map[cell]bool {
 	occ := make(map[cell]bool)
-	if w.doc.RecycleIcon.Kind == LocDesktop {
+	if w.doc.RecycleIcon.Kind == LocDesktop && w.doc.RecycleIcon.Row >= 1 && w.doc.RecycleIcon.Col >= 1 {
 		occ[cell{w.doc.RecycleIcon.Row, w.doc.RecycleIcon.Col}] = true
 	}
+	// Grid occupancy is desktop placement only. In-box members are membership-
+	// truth (not LocBox); recycle is placement-only. Stale desktop coords on a
+	// member must not block free-cell search (E3.2 / ADR-0002).
+	membership := w.membershipByPlaceholder()
 	for _, p := range w.doc.Placeholders {
-		if p.Location.Kind != LocDesktop {
+		if !isDesktopGridPlacement(p, membership) {
 			continue
 		}
 		occ[cell{p.Location.Row, p.Location.Col}] = true
 	}
 	return occ
+}
+
+// isDesktopGridPlacement is true when a placeholder occupies a desktop grid cell:
+// not in recycle, not a box member, and has a valid 1-based desktop cell.
+func isDesktopGridPlacement(p index.PlaceholderRecord, membership map[string]boxMembership) bool {
+	if p.Location.Kind == LocRecycle {
+		return false
+	}
+	if _, member := membership[p.ID]; member {
+		return false
+	}
+	return validDesktopPlacement(p.Location)
 }
 
 // nextFreeCell prefers preferCol from startRow downward, then row-major free cells.

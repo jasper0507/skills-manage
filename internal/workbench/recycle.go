@@ -166,11 +166,10 @@ func (w *Workbench) planTrash(placeholderIDs []string) (TrashPlan, error) {
 		if seenReq[id] {
 			continue
 		}
-		idx, ok := w.placeholderIndex(id)
-		if !ok {
+		if _, ok := w.placeholderIndex(id); !ok {
 			continue
 		}
-		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+		if w.placeholderInRecycle(id) {
 			continue
 		}
 		seenReq[id] = true
@@ -227,6 +226,7 @@ func (w *Workbench) livePlaceholderIDs(identity string) []string {
 	var ids []string
 	for _, p := range w.doc.Placeholders {
 		if p.Identity == identity && p.Location.Kind != LocRecycle {
+			// Live = not in recycle bin (placement). Box members are still live.
 			ids = append(ids, p.ID)
 		}
 	}
@@ -259,11 +259,10 @@ func (w *Workbench) pruneClipboardAfterTrash() {
 	}
 	kept := make([]string, 0, len(w.clipboard.PlaceholderIDs))
 	for _, id := range w.clipboard.PlaceholderIDs {
-		idx, ok := w.placeholderIndex(id)
-		if !ok {
+		if _, ok := w.placeholderIndex(id); !ok {
 			continue
 		}
-		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+		if w.placeholderInRecycle(id) {
 			continue
 		}
 		kept = append(kept, id)

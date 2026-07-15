@@ -89,11 +89,9 @@ func (w *Workbench) cleanItemIDs(
 		if !phOK[id] {
 			continue
 		}
-		// Recycle placeholders cannot live in a box.
-		if idx, ok := w.placeholderIndex(id); ok {
-			if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
-				continue
-			}
+		// Recycle placement forbids box membership.
+		if w.placeholderInRecycle(id) {
+			continue
 		}
 		if _, already := claimed[id]; already {
 			// Prefer earlier ItemIDs claim; drop duplicate membership.
@@ -108,8 +106,20 @@ func (w *Workbench) cleanItemIDs(
 	return out
 }
 
+// placeholderInRecycle is true when the placeholder's durable placement is the
+// icon recycle bin (LocRecycle). Recycle is placement truth, not membership.
+func (w *Workbench) placeholderInRecycle(phID string) bool {
+	idx, ok := w.placeholderIndex(phID)
+	if !ok {
+		return false
+	}
+	return w.doc.Placeholders[idx].Location.Kind == LocRecycle
+}
+
 // membershipByPlaceholder builds the first-claim map from current ItemIDs
-// (no mutation). Used by Desk to project LocBox for the external view.
+// (no mutation). Used by Desk to project LocBox for the external view and by
+// grid occupancy to ignore in-box members. "In a box?" is always this map,
+// never Location.Kind == LocBox.
 func (w *Workbench) membershipByPlaceholder() map[string]boxMembership {
 	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
 	for _, b := range w.doc.Boxes {

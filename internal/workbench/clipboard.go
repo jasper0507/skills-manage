@@ -22,11 +22,10 @@ func (w *Workbench) SetClipboard(mode string, placeholderIDs []string) error {
 		if seen[id] {
 			continue
 		}
-		idx, ok := w.placeholderIndex(id)
-		if !ok {
+		if _, ok := w.placeholderIndex(id); !ok {
 			continue
 		}
-		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+		if w.placeholderInRecycle(id) {
 			continue
 		}
 		seen[id] = true
@@ -83,11 +82,11 @@ func (w *Workbench) PasteToDesktop(row, col int) error {
 			if !ok {
 				continue
 			}
-			if w.doc.Placeholders[srcIdx].Location.Kind == LocRecycle {
+			if w.placeholderInRecycle(srcID) {
 				continue
 			}
 			loc := w.doc.Placeholders[srcIdx].Location
-			if loc.Kind == LocDesktop {
+			if validDesktopPlacement(loc) {
 				delete(occupied, cell{loc.Row, loc.Col})
 			}
 			w.removePlaceholderFromContainers(srcID)
@@ -123,7 +122,8 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 
 		if cb.Mode == ClipCopy {
 			// Resolve target once so a bad compartment fails before any append.
-			if _, err := w.locationForBoxMember(box, boxID, compartmentID); err != nil {
+			cid, err := w.resolveBoxTarget(box, compartmentID)
+			if err != nil {
 				return err
 			}
 			for _, srcID := range cb.PlaceholderIDs {
@@ -133,18 +133,14 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 				}
 				src := w.doc.Placeholders[srcIdx]
 				newID := w.newPlaceholderID()
-				loc, err := w.locationForBoxMember(box, boxID, compartmentID)
-				if err != nil {
-					return err
-				}
-				// Membership + Location together (ItemIDs is membership truth).
-				if err := w.appendPlaceholderToBox(box, newID, loc.CompartmentID); err != nil {
+				// Membership only for in-box copies; no LocBox dual-write.
+				if err := w.appendPlaceholderToBox(box, newID, cid); err != nil {
 					return err
 				}
 				w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
 					ID:       newID,
 					Identity: src.Identity,
-					Location: loc,
+					Location: index.Location{},
 				})
 			}
 			return nil
@@ -164,9 +160,11 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 	})
 }
 
-func (w *Workbench) locationForBoxMember(box *index.BoxRecord, boxID, compartmentID string) (index.Location, error) {
+// resolveBoxTarget returns the compartment id for a paste/move into a box.
+// Simple boxes return empty compartmentID. Does not build LocBox (membership-only).
+func (w *Workbench) resolveBoxTarget(box *index.BoxRecord, compartmentID string) (string, error) {
 	if box.Kind == BoxSimple {
-		return index.Location{Kind: LocBox, BoxID: boxID}, nil
+		return "", nil
 	}
 	cid := compartmentID
 	if cid == "" {
@@ -174,10 +172,10 @@ func (w *Workbench) locationForBoxMember(box *index.BoxRecord, boxID, compartmen
 	}
 	for _, c := range box.Compartments {
 		if c.ID == cid {
-			return index.Location{Kind: LocBox, BoxID: boxID, CompartmentID: cid}, nil
+			return cid, nil
 		}
 	}
-	return index.Location{}, fmt.Errorf("unknown compartment %q", cid)
+	return "", fmt.Errorf("unknown compartment %q", cid)
 }
 
 func (w *Workbench) appendPlaceholderToBox(box *index.BoxRecord, phID, compartmentID string) error {
@@ -207,7 +205,7 @@ func (w *Workbench) movePlaceholderToBoxNoPersist(placeholderID, boxID, compartm
 	if !ok {
 		return fmt.Errorf("unknown placeholder %q", placeholderID)
 	}
-	if w.doc.Placeholders[phIdx].Location.Kind == LocRecycle {
+	if w.placeholderInRecycle(placeholderID) {
 		return fmt.Errorf("cannot move placeholder in recycle")
 	}
 	bIdx, ok := w.boxIndex(boxID)
@@ -219,7 +217,7 @@ func (w *Workbench) movePlaceholderToBoxNoPersist(placeholderID, boxID, compartm
 		return fmt.Errorf("unknown box kind %q", box.Kind)
 	}
 	// Resolve target fully before mutating membership (avoids partial strip on error).
-	loc, err := w.locationForBoxMember(box, boxID, compartmentID)
+	cid, err := w.resolveBoxTarget(box, compartmentID)
 	if err != nil {
 		return err
 	}
@@ -230,10 +228,11 @@ func (w *Workbench) movePlaceholderToBoxNoPersist(placeholderID, boxID, compartm
 		return fmt.Errorf("unknown box %q", boxID)
 	}
 	box = &w.doc.Boxes[bIdx]
-	if err := w.appendPlaceholderToBox(box, placeholderID, loc.CompartmentID); err != nil {
+	if err := w.appendPlaceholderToBox(box, placeholderID, cid); err != nil {
 		return err
 	}
-	w.doc.Placeholders[phIdx].Location = loc
+	// Membership is the only in-box truth; clear placement (no LocBox dual-write).
+	w.doc.Placeholders[phIdx].Location = index.Location{}
 	return nil
 }
 
@@ -292,7 +291,7 @@ func (w *Workbench) MovePlaceholdersToBox(placeholderIDs []string, boxID, compar
 			return fmt.Errorf("unknown box %q", boxID)
 		}
 		// Pre-resolve compartment so a bad target fails before any mutation.
-		if _, err := w.locationForBoxMember(&w.doc.Boxes[bIdx], boxID, compartmentID); err != nil {
+		if _, err := w.resolveBoxTarget(&w.doc.Boxes[bIdx], compartmentID); err != nil {
 			return err
 		}
 
@@ -302,11 +301,10 @@ func (w *Workbench) MovePlaceholdersToBox(placeholderIDs []string, boxID, compar
 			if seen[id] {
 				continue
 			}
-			idx, ok := w.placeholderIndex(id)
-			if !ok {
+			if _, ok := w.placeholderIndex(id); !ok {
 				continue
 			}
-			if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+			if w.placeholderInRecycle(id) {
 				continue
 			}
 			seen[id] = true
