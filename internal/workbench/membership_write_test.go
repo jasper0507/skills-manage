@@ -33,29 +33,7 @@ func TestE32_MoveIntoBox_ItemIDsOnly_NoDurableLocBox(t *testing.T) {
 	if it.ID != a.ID || it.Location.Kind != workbench.LocBox || it.Location.BoxID != boxID {
 		t.Errorf("desk projection = %+v, want LocBox %s", it, boxID)
 	}
-
-	// Document: ItemIDs only; member has no LocBox / no desktop placement.
-	doc, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.Boxes) != 1 || len(doc.Boxes[0].ItemIDs) != 1 || doc.Boxes[0].ItemIDs[0] != a.ID {
-		t.Fatalf("persisted ItemIDs = %+v", doc.Boxes)
-	}
-	for _, p := range doc.Placeholders {
-		if p.ID != a.ID {
-			continue
-		}
-		if p.Location.Kind == index.LocBox {
-			t.Errorf("durable LocBox after enter-box: %+v", p.Location)
-		}
-		if p.Location.Kind == index.LocDesktop {
-			t.Errorf("durable desktop placement after enter-box: %+v", p.Location)
-		}
-		if p.Location.Kind != "" {
-			t.Errorf("member placement kind = %q, want empty (membership only)", p.Location.Kind)
-		}
-	}
+	assertMemberPlacementEmpty(t, store, a.ID)
 
 	// Vacated desktop cell is free for another icon (collision ignores members).
 	b := phByName(t, desk, "b")
@@ -301,23 +279,13 @@ func TestE32_MoveBetweenBoxes_OneMembershipOnly(t *testing.T) {
 	}
 	_ = b
 
+	assertMemberPlacementEmpty(t, store, a.ID)
+	assertMemberPlacementEmpty(t, store, c.ID)
+	// Source box empty of a; target holds a.
 	doc, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// a appears in exactly one ItemIDs list.
-	claims := 0
-	for _, box := range doc.Boxes {
-		for _, id := range box.ItemIDs {
-			if id == a.ID {
-				claims++
-			}
-		}
-	}
-	if claims != 1 {
-		t.Errorf("membership claims for a = %d, want 1 (boxes=%+v)", claims, doc.Boxes)
-	}
-	// Source box empty of a.
 	for _, box := range doc.Boxes {
 		if box.ID == box1 && containsStr(box.ItemIDs, a.ID) {
 			t.Errorf("a still in source box ItemIDs: %v", box.ItemIDs)
@@ -348,31 +316,7 @@ func TestE32_AutoBoxAndPasteCopy_NoDurableLocBox(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	memberSet := map[string]bool{}
-	for _, box := range doc.Boxes {
-		for _, id := range box.ItemIDs {
-			memberSet[id] = true
-		}
-	}
-	if len(memberSet) != 3 {
-		t.Fatalf("want 3 members (alpha,beta,gamma-copy), got %v", memberSet)
-	}
-	for _, p := range doc.Placeholders {
-		if !memberSet[p.ID] {
-			continue
-		}
-		if p.Location.Kind == index.LocBox {
-			t.Errorf("member %s still has LocBox: %+v", p.ID, p.Location)
-		}
-		if p.Location.Kind == index.LocDesktop {
-			t.Errorf("member %s still has desktop: %+v", p.ID, p.Location)
-		}
-	}
-	// Desk still projects box for members.
+	// Desk projects box; document members have empty placement only.
 	desk = wb.Desk()
 	if n := len(desk.Boxes[0].Items); n != 3 {
 		t.Fatalf("desk box items = %d, want 3", n)
@@ -381,6 +325,7 @@ func TestE32_AutoBoxAndPasteCopy_NoDurableLocBox(t *testing.T) {
 		if it.Location.Kind != workbench.LocBox || it.Location.BoxID != boxID {
 			t.Errorf("projected %s = %+v", it.Name, it.Location)
 		}
+		assertMemberPlacementEmpty(t, store, it.ID)
 	}
 }
 
@@ -410,43 +355,6 @@ func TestE32_ComposeEject_MembershipOnly(t *testing.T) {
 	if err := wb.EjectCompartment(compID, cmp0, 600, 400); err != nil {
 		t.Fatal(err)
 	}
-
-	doc, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Every placeholder id appears in at most one ItemIDs list.
-	seen := map[string]string{}
-	for _, box := range doc.Boxes {
-		ids := box.ItemIDs
-		if box.Kind == index.BoxComposite {
-			ids = nil
-			for _, c := range box.Compartments {
-				ids = append(ids, c.ItemIDs...)
-			}
-		}
-		for _, id := range ids {
-			if prev, ok := seen[id]; ok {
-				t.Errorf("placeholder %s in both %s and %s", id, prev, box.ID)
-			}
-			seen[id] = box.ID
-		}
-	}
-	for _, p := range doc.Placeholders {
-		if _, ok := seen[p.ID]; !ok {
-			continue
-		}
-		if p.Location.Kind == index.LocBox {
-			t.Errorf("member %s has durable LocBox after compose/eject: %+v", p.ID, p.Location)
-		}
-	}
-}
-
-func containsStr(ids []string, want string) bool {
-	for _, id := range ids {
-		if id == want {
-			return true
-		}
-	}
-	return false
+	// Structure ops only reshuffle ItemIDs; still one claim per id, no LocBox.
+	assertExactlyOneMembership(t, store)
 }

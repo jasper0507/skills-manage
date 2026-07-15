@@ -187,23 +187,21 @@ func (w *Workbench) mergeIconsIntoAutoBoxNoPersist(phIDs []string, nearRow, near
 
 	boxID := w.newBoxID()
 	box := index.BoxRecord{
-		ID:      boxID,
-		Kind:    BoxSimple,
-		Tag:     tag,
-		X:       pos.x,
-		Y:       pos.y,
-		W:       defaultSimpleBoxW,
-		H:       defaultSimpleBoxH,
-		ItemIDs: make([]string, 0, len(ids)),
+		ID:   boxID,
+		Kind: BoxSimple,
+		Tag:  tag,
+		X:    pos.x,
+		Y:    pos.y,
+		W:    defaultSimpleBoxW,
+		H:    defaultSimpleBoxH,
 	}
 	for _, id := range ids {
-		idx, ok := w.placeholderIndex(id)
-		if !ok {
+		if _, ok := w.placeholderIndex(id); !ok {
 			continue
 		}
-		// Membership is the only in-box truth; clear placement (no LocBox dual-write).
-		box.ItemIDs = append(box.ItemIDs, id)
-		w.doc.Placeholders[idx].Location = index.Location{}
+		if err := w.admitMember(&box, id, ""); err != nil {
+			return err
+		}
 	}
 	w.doc.Boxes = append(w.doc.Boxes, box)
 	return nil

@@ -82,17 +82,8 @@ func (w *Workbench) composeSimpleIntoSimpleNoPersist(sIdx, tIdx int) error {
 		ItemIDs: append([]string(nil), src.ItemIDs...),
 	}
 
-	// ItemIDs already list members; keep placement empty (no LocBox dual-write).
-	for _, phID := range c1.ItemIDs {
-		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{}
-		}
-	}
-	for _, phID := range c2.ItemIDs {
-		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{}
-		}
-	}
+	// Structure op: only reshuffle ItemIDs. Members already have empty placement
+	// from admit; rehome is the safety net if anything is stale.
 
 	// Recycle icon in either box moves into first compartment of the composite.
 	r := &w.doc.RecycleIcon
@@ -132,12 +123,7 @@ func (w *Workbench) addSimpleToCompositeNoPersist(sIdx, tIdx int) error {
 		Tag:     tag,
 		ItemIDs: append([]string(nil), src.ItemIDs...),
 	}
-	// Membership moved with ItemIDs; clear placement (no LocBox dual-write).
-	for _, phID := range c.ItemIDs {
-		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{}
-		}
-	}
+	// Structure op: ItemIDs move with the compartment; placement unchanged (empty).
 	r := &w.doc.RecycleIcon
 	if r.Kind == LocBox && r.BoxID == src.ID {
 		r.BoxID = tgt.ID
@@ -249,12 +235,7 @@ func (w *Workbench) EjectCompartment(compositeBoxID, compartmentID string, x, y 
 			H:       defaultSimpleBoxH,
 			ItemIDs: append([]string(nil), comp.ItemIDs...),
 		}
-		// Membership is the new simple box's ItemIDs; no LocBox dual-write.
-		for _, phID := range newBox.ItemIDs {
-			if i, ok := w.placeholderIndex(phID); ok {
-				w.doc.Placeholders[i].Location = index.Location{}
-			}
-		}
+		// Structure op: membership travels with ItemIDs only.
 		r := &w.doc.RecycleIcon
 		if r.Kind == LocBox && r.BoxID == compositeBoxID && r.CompartmentID == compartmentID {
 			r.BoxID = newID
@@ -290,12 +271,7 @@ func (w *Workbench) demoteCompositeIfSingle(bIdx int) {
 	box.ActiveCompartmentID = ""
 	box.W = defaultSimpleBoxW
 	box.H = defaultSimpleBoxH
-	// Demote keeps ItemIDs membership; clear placement (no LocBox dual-write).
-	for _, phID := range box.ItemIDs {
-		if i, ok := w.placeholderIndex(phID); ok {
-			w.doc.Placeholders[i].Location = index.Location{}
-		}
-	}
+	// Structure op: demote keeps ItemIDs as membership; placement already empty.
 	r := &w.doc.RecycleIcon
 	if r.Kind == LocBox && r.BoxID == box.ID {
 		r.CompartmentID = ""

@@ -121,7 +121,7 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 		box := &w.doc.Boxes[bIdx]
 
 		if cb.Mode == ClipCopy {
-			// Resolve target once so a bad compartment fails before any append.
+			// Resolve target once so a bad compartment fails before any admit.
 			cid, err := w.resolveBoxTarget(box, compartmentID)
 			if err != nil {
 				return err
@@ -133,15 +133,14 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 				}
 				src := w.doc.Placeholders[srcIdx]
 				newID := w.newPlaceholderID()
-				// Membership only for in-box copies; no LocBox dual-write.
-				if err := w.appendPlaceholderToBox(box, newID, cid); err != nil {
-					return err
-				}
 				w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
 					ID:       newID,
 					Identity: src.Identity,
-					Location: index.Location{},
 				})
+				// admitMember: ItemIDs + clear placement (membership-only in-box).
+				if err := w.admitMember(box, newID, cid); err != nil {
+					return err
+				}
 			}
 			return nil
 		}
@@ -161,7 +160,8 @@ func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
 }
 
 // resolveBoxTarget returns the compartment id for a paste/move into a box.
-// Simple boxes return empty compartmentID. Does not build LocBox (membership-only).
+// Simple boxes return "". Empty compartmentID uses the active compartment.
+// This is the only place that resolves compartment; admitMember requires the result.
 func (w *Workbench) resolveBoxTarget(box *index.BoxRecord, compartmentID string) (string, error) {
 	if box.Kind == BoxSimple {
 		return "", nil
@@ -178,31 +178,38 @@ func (w *Workbench) resolveBoxTarget(box *index.BoxRecord, compartmentID string)
 	return "", fmt.Errorf("unknown compartment %q", cid)
 }
 
-func (w *Workbench) appendPlaceholderToBox(box *index.BoxRecord, phID, compartmentID string) error {
+// admitMember adds phID to the box/compartment ItemIDs and clears durable
+// placement. resolvedCompartmentID must come from resolveBoxTarget ("" for simple).
+// In-box truth is membership only — callers must not also write LocBox.
+func (w *Workbench) admitMember(box *index.BoxRecord, phID, resolvedCompartmentID string) error {
 	if box.Kind == BoxSimple {
 		if !containsID(box.ItemIDs, phID) {
 			box.ItemIDs = append(box.ItemIDs, phID)
 		}
-		return nil
-	}
-	cid := compartmentID
-	if cid == "" {
-		cid = box.ActiveCompartmentID
-	}
-	for i := range box.Compartments {
-		if box.Compartments[i].ID == cid {
+	} else {
+		found := false
+		for i := range box.Compartments {
+			if box.Compartments[i].ID != resolvedCompartmentID {
+				continue
+			}
 			if !containsID(box.Compartments[i].ItemIDs, phID) {
 				box.Compartments[i].ItemIDs = append(box.Compartments[i].ItemIDs, phID)
 			}
-			return nil
+			found = true
+			break
+		}
+		if !found {
+			return fmt.Errorf("unknown compartment %q", resolvedCompartmentID)
 		}
 	}
-	return fmt.Errorf("unknown compartment %q", cid)
+	if idx, ok := w.placeholderIndex(phID); ok {
+		w.doc.Placeholders[idx].Location = index.Location{}
+	}
+	return nil
 }
 
 func (w *Workbench) movePlaceholderToBoxNoPersist(placeholderID, boxID, compartmentID string) error {
-	phIdx, ok := w.placeholderIndex(placeholderID)
-	if !ok {
+	if _, ok := w.placeholderIndex(placeholderID); !ok {
 		return fmt.Errorf("unknown placeholder %q", placeholderID)
 	}
 	if w.placeholderInRecycle(placeholderID) {
@@ -227,13 +234,7 @@ func (w *Workbench) movePlaceholderToBoxNoPersist(placeholderID, boxID, compartm
 	if !ok {
 		return fmt.Errorf("unknown box %q", boxID)
 	}
-	box = &w.doc.Boxes[bIdx]
-	if err := w.appendPlaceholderToBox(box, placeholderID, cid); err != nil {
-		return err
-	}
-	// Membership is the only in-box truth; clear placement (no LocBox dual-write).
-	w.doc.Placeholders[phIdx].Location = index.Location{}
-	return nil
+	return w.admitMember(&w.doc.Boxes[bIdx], placeholderID, cid)
 }
 
 // EnableMultiSelect turns multi-select on with the given placeholder pre-selected.

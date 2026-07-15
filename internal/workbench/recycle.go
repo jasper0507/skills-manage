@@ -40,6 +40,7 @@ func (w *Workbench) MoveRecycleToDesktop(row, col int) error {
 }
 
 // MoveRecycleToBox puts the 回收站 system icon into a box (simple or current/compartment).
+// The system icon may use LocBox; it is not a placeholder ItemIDs member.
 func (w *Workbench) MoveRecycleToBox(boxID, compartmentID string) error {
 	return w.withMutation(func() error {
 		bIdx, ok := w.boxIndex(boxID)
@@ -47,27 +48,11 @@ func (w *Workbench) MoveRecycleToBox(boxID, compartmentID string) error {
 			return fmt.Errorf("unknown box %q", boxID)
 		}
 		box := &w.doc.Boxes[bIdx]
-		loc := index.Location{Kind: LocBox, BoxID: boxID}
-		if box.Kind == BoxSimple {
-			loc.CompartmentID = ""
-		} else {
-			cid := compartmentID
-			if cid == "" {
-				cid = box.ActiveCompartmentID
-			}
-			found := false
-			for _, c := range box.Compartments {
-				if c.ID == cid {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("unknown compartment %q in box %q", cid, boxID)
-			}
-			loc.CompartmentID = cid
+		cid, err := w.resolveBoxTarget(box, compartmentID)
+		if err != nil {
+			return err
 		}
-		w.doc.RecycleIcon = loc
+		w.doc.RecycleIcon = index.Location{Kind: LocBox, BoxID: boxID, CompartmentID: cid}
 		return nil
 	})
 }

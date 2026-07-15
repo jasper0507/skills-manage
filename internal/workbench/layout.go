@@ -7,10 +7,14 @@ type point struct{ x, y float64 }
 // findBoxPosWithoutIconOverlap snaps (x,y) and nudges until the box rectangle
 // does not cover desktop skill icons or the recycle icon. ok is false when no
 // clear slot is found within the search radius (refuse cover rather than silent overlap).
+// excludeBoxID is reserved (boxes may stack; only icon coverage is forbidden).
 func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64, excludeBoxID string) (point, bool) {
+	_ = excludeBoxID
+	// Snapshot desktop icon rects once; membership does not change during nudge search.
+	icons := w.desktopIconRects()
 	px := snap(x, boxSnapGrid)
 	py := snap(y, boxSnapGrid)
-	if w.boxPosOK(px, py, width, height, excludeBoxID) {
+	if boxPosOK(px, py, width, height, icons) {
 		return point{px, py}, true
 	}
 	g := float64(boxSnapGrid)
@@ -21,7 +25,7 @@ func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64, ex
 		} {
 			tx := maxF(0, px+d[0])
 			ty := maxF(0, py+d[1])
-			if w.boxPosOK(tx, ty, width, height, excludeBoxID) {
+			if boxPosOK(tx, ty, width, height, icons) {
 				return point{tx, ty}, true
 			}
 		}
@@ -29,25 +33,31 @@ func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64, ex
 	return point{px, py}, false
 }
 
-func (w *Workbench) boxPosOK(x, y, width, height float64, excludeBoxID string) bool {
-	rect := rect{x, y, width, height}
-	// Only true desktop placements collide; box members are membership-only.
+// desktopIconRects is the set of skill + recycle icon rectangles that occupy
+// true desktop placement (membership-only members are excluded).
+func (w *Workbench) desktopIconRects() []rect {
 	membership := w.membershipByPlaceholder()
+	out := make([]rect, 0, len(w.doc.Placeholders)+1)
 	for _, p := range w.doc.Placeholders {
 		if !isDesktopGridPlacement(p, membership) {
 			continue
 		}
-		if rectsOverlap(rect, iconRectAtCell(p.Location.Row, p.Location.Col), 2) {
+		out = append(out, iconRectAtCell(p.Location.Row, p.Location.Col))
+	}
+	r := w.doc.RecycleIcon
+	if r.Kind == LocDesktop && r.Row >= 1 && r.Col >= 1 {
+		out = append(out, iconRectAtCell(r.Row, r.Col))
+	}
+	return out
+}
+
+func boxPosOK(x, y, width, height float64, icons []rect) bool {
+	box := rect{x, y, width, height}
+	for _, ir := range icons {
+		if rectsOverlap(box, ir, 2) {
 			return false
 		}
 	}
-	if w.doc.RecycleIcon.Kind == LocDesktop {
-		r := w.doc.RecycleIcon
-		if r.Row >= 1 && r.Col >= 1 && rectsOverlap(rect, iconRectAtCell(r.Row, r.Col), 2) {
-			return false
-		}
-	}
-	_ = excludeBoxID // boxes may partially stack; only icon coverage is forbidden
 	return true
 }
 
@@ -112,11 +122,8 @@ func (w *Workbench) occupiedDesktopCells() map[cell]bool {
 }
 
 // isDesktopGridPlacement is true when a placeholder occupies a desktop grid cell:
-// not in recycle, not a box member, and has a valid 1-based desktop cell.
+// not a box member, and has a valid 1-based desktop cell (recycle fails the latter).
 func isDesktopGridPlacement(p index.PlaceholderRecord, membership map[string]boxMembership) bool {
-	if p.Location.Kind == LocRecycle {
-		return false
-	}
 	if _, member := membership[p.ID]; member {
 		return false
 	}
