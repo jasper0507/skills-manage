@@ -42,7 +42,8 @@ func (c *countingStore) saveCount() int {
 	return c.saves
 }
 
-// Open repairs "in ItemIDs but Location says desktop" preferring membership truth.
+// Open: membership wins over dual-write desktop Location; document drops LocBox;
+// Desk still projects in-box Location from ItemIDs (E3.1).
 func TestOpen_Rehome_ItemIDsWinsOverDesktopLocation(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root+"/alpha", "alpha")
@@ -82,13 +83,222 @@ func TestOpen_Rehome_ItemIDsWinsOverDesktopLocation(t *testing.T) {
 	}
 	ph := desk.Boxes[0].Items[0]
 	if ph.Location.Kind != workbench.LocBox || ph.Location.BoxID != "box_1" {
-		t.Errorf("rehomed location = %+v, want box box_1", ph.Location)
+		t.Errorf("desk projected location = %+v, want box box_1", ph.Location)
 	}
 	// Placeholder list agrees with membership (no desktop ghost with stale coords).
 	for _, p := range desk.Placeholders {
 		if p.ID == "ph_a" && p.Location.Kind != workbench.LocBox {
 			t.Errorf("desk ph location still diverged: %+v", p.Location)
 		}
+	}
+
+	// Document shape: membership only — no parallel in-box Location on disk.
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Boxes) != 1 || len(saved.Boxes[0].ItemIDs) != 1 || saved.Boxes[0].ItemIDs[0] != "ph_a" {
+		t.Fatalf("persisted membership = %+v, want ph_a in box_1", saved.Boxes)
+	}
+	for _, p := range saved.Placeholders {
+		if p.ID != "ph_a" {
+			continue
+		}
+		if p.Location.Kind == index.LocBox {
+			t.Errorf("document still has LocBox for member: %+v", p.Location)
+		}
+		if p.Location.Kind == index.LocDesktop {
+			t.Errorf("document still has desktop placement for member: %+v", p.Location)
+		}
+	}
+}
+
+// Non-recycle placeholder with missing/invalid desktop coords → viewport free cell.
+func TestOpen_InvalidDesktopCoords_GetsViewportFreeCell(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root+"/gamma", "gamma")
+	gammaID := mustRealpath(t, root+"/gamma")
+
+	store := index.NewMemoryStore()
+	doc := index.Document{
+		SchemaVersion: index.SchemaVersion,
+		Skills:        []index.SkillRecord{{Identity: gammaID, Name: "gamma"}},
+		Placeholders: []index.PlaceholderRecord{{
+			ID: "ph_bad", Identity: gammaID,
+			// kind=desktop but zero coords (invalid 1-based grid).
+			Location: index.Location{Kind: index.LocDesktop, Row: 0, Col: 0},
+		}},
+		RecycleIcon: index.Location{Kind: index.LocDesktop, Row: 1, Col: 1},
+	}
+	if err := store.Save(doc); err != nil {
+		t.Fatal(err)
+	}
+	wb := workbench.New(workbench.Config{ScanRoots: []string{root}, Index: store})
+	if err := wb.Open(); err != nil {
+		t.Fatal(err)
+	}
+	desk := wb.Desk()
+	found := false
+	for _, p := range desk.Placeholders {
+		if p.ID != "ph_bad" {
+			continue
+		}
+		found = true
+		if p.Location.Kind != workbench.LocDesktop {
+			t.Fatalf("location = %+v, want desktop free cell", p.Location)
+		}
+		if p.Location.Row < 1 || p.Location.Col < 1 {
+			t.Fatalf("invalid free cell %+v", p.Location)
+		}
+		if p.Location.Row == 1 && p.Location.Col == 1 {
+			t.Fatalf("stacked on recycle: %+v", p.Location)
+		}
+	}
+	if !found {
+		t.Fatal("ph_bad missing from desk")
+	}
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range saved.Placeholders {
+		if p.ID != "ph_bad" {
+			continue
+		}
+		if p.Location.Kind != index.LocDesktop || p.Location.Row < 1 || p.Location.Col < 1 {
+			t.Errorf("document placement = %+v, want valid desktop", p.Location)
+		}
+	}
+}
+
+// Duplicate ItemIDs claims: first wins; later boxes lose the id.
+func TestOpen_DuplicateMembership_FirstWins(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root+"/delta", "delta")
+	deltaID := mustRealpath(t, root+"/delta")
+
+	store := index.NewMemoryStore()
+	doc := index.Document{
+		SchemaVersion: index.SchemaVersion,
+		Skills:        []index.SkillRecord{{Identity: deltaID, Name: "delta"}},
+		Placeholders: []index.PlaceholderRecord{{
+			ID: "ph_d", Identity: deltaID,
+			Location: index.Location{Kind: index.LocDesktop, Row: 2, Col: 2},
+		}},
+		RecycleIcon: index.Location{Kind: index.LocDesktop, Row: 1, Col: 1},
+		Boxes: []index.BoxRecord{
+			{
+				ID: "box_first", Kind: index.BoxSimple, Tag: "first",
+				X: 200, Y: 200, W: 240, H: 220,
+				ItemIDs: []string{"ph_d"},
+			},
+			{
+				ID: "box_second", Kind: index.BoxSimple, Tag: "second",
+				X: 500, Y: 200, W: 240, H: 220,
+				ItemIDs: []string{"ph_d"},
+			},
+		},
+	}
+	if err := store.Save(doc); err != nil {
+		t.Fatal(err)
+	}
+	wb := workbench.New(workbench.Config{ScanRoots: []string{root}, Index: store})
+	if err := wb.Open(); err != nil {
+		t.Fatal(err)
+	}
+	desk := wb.Desk()
+	var firstItems, secondItems int
+	for _, b := range desk.Boxes {
+		switch b.ID {
+		case "box_first":
+			firstItems = len(b.Items)
+			if firstItems == 1 && b.Items[0].Location.BoxID != "box_first" {
+				t.Errorf("first box projected location = %+v", b.Items[0].Location)
+			}
+		case "box_second":
+			secondItems = len(b.Items)
+		}
+	}
+	if firstItems != 1 || secondItems != 0 {
+		t.Fatalf("membership first=%d second=%d, want 1 and 0", firstItems, secondItems)
+	}
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range saved.Boxes {
+		switch b.ID {
+		case "box_first":
+			if len(b.ItemIDs) != 1 || b.ItemIDs[0] != "ph_d" {
+				t.Errorf("first ItemIDs = %v", b.ItemIDs)
+			}
+		case "box_second":
+			if len(b.ItemIDs) != 0 {
+				t.Errorf("second ItemIDs = %v, want stripped", b.ItemIDs)
+			}
+		}
+	}
+}
+
+// Composite membership projects LocBox with compartmentId; document has no LocBox.
+func TestOpen_CompositeMembership_ProjectsCompartment(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root+"/epsilon", "epsilon")
+	epsID := mustRealpath(t, root+"/epsilon")
+
+	store := index.NewMemoryStore()
+	doc := index.Document{
+		SchemaVersion: index.SchemaVersion,
+		Skills:        []index.SkillRecord{{Identity: epsID, Name: "epsilon"}},
+		Placeholders: []index.PlaceholderRecord{{
+			ID: "ph_e", Identity: epsID,
+			// Dual-write LocBox that must be stripped from the document.
+			Location: index.Location{Kind: index.LocBox, BoxID: "box_c", CompartmentID: "cmp_1"},
+		}},
+		RecycleIcon: index.Location{Kind: index.LocDesktop, Row: 1, Col: 1},
+		Boxes: []index.BoxRecord{{
+			ID: "box_c", Kind: index.BoxComposite, Title: "Go",
+			X: 200, Y: 200, W: 280, H: 260,
+			ActiveCompartmentID: "cmp_1",
+			Compartments: []index.CompartmentRecord{
+				{ID: "cmp_1", Tag: "libs", ItemIDs: []string{"ph_e"}},
+				{ID: "cmp_2", Tag: "tools", ItemIDs: nil},
+			},
+		}},
+	}
+	if err := store.Save(doc); err != nil {
+		t.Fatal(err)
+	}
+	wb := workbench.New(workbench.Config{ScanRoots: []string{root}, Index: store})
+	if err := wb.Open(); err != nil {
+		t.Fatal(err)
+	}
+	desk := wb.Desk()
+	if len(desk.Boxes) != 1 || len(desk.Boxes[0].Compartments) != 2 {
+		t.Fatalf("boxes = %+v", desk.Boxes)
+	}
+	items := desk.Boxes[0].Compartments[0].Items
+	if len(items) != 1 || items[0].ID != "ph_e" {
+		t.Fatalf("compartment items = %+v, want ph_e", items)
+	}
+	loc := items[0].Location
+	if loc.Kind != workbench.LocBox || loc.BoxID != "box_c" || loc.CompartmentID != "cmp_1" {
+		t.Errorf("projected location = %+v, want box_c/cmp_1", loc)
+	}
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range saved.Placeholders {
+		if p.ID == "ph_e" && p.Location.Kind == index.LocBox {
+			t.Errorf("document still has LocBox: %+v", p.Location)
+		}
+	}
+	if len(saved.Boxes) != 1 || len(saved.Boxes[0].Compartments) < 1 {
+		t.Fatalf("persisted boxes = %+v", saved.Boxes)
+	}
+	if got := saved.Boxes[0].Compartments[0].ItemIDs; len(got) != 1 || got[0] != "ph_e" {
+		t.Errorf("persisted membership = %v, want ph_e", got)
 	}
 }
 
@@ -181,9 +391,26 @@ func TestOpen_Rehome_LocationBoxWithoutMembership_GoesDesktop(t *testing.T) {
 	if !found {
 		t.Fatal("ph_b missing from desk")
 	}
+	// Document: ghost LocBox replaced with free desktop placement (package/layout intact).
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Boxes) != 1 || len(saved.Boxes[0].ItemIDs) != 0 {
+		t.Errorf("box membership should stay empty: %+v", saved.Boxes)
+	}
+	for _, p := range saved.Placeholders {
+		if p.ID != "ph_b" {
+			continue
+		}
+		if p.Location.Kind != index.LocDesktop || p.Location.Row < 1 || p.Location.Col < 1 {
+			t.Errorf("document ghost placement = %+v, want free desktop", p.Location)
+		}
+	}
 }
 
-// Happy path place/move: ItemIDs and Location agree after MovePlaceholderToBox.
+// Happy path place/move: Desk projects LocBox from membership; document stores
+// ItemIDs only (no parallel LocBox) after withMutation normalize (E3.1).
 func TestMoveToBox_MembershipAndLocationAgree(t *testing.T) {
 	wb, store := openDeskWithSkills(t, "a", "b")
 	desk := wb.Desk()
@@ -209,8 +436,17 @@ func TestMoveToBox_MembershipAndLocationAgree(t *testing.T) {
 			t.Errorf("item %s location = %+v, want box %s", it.Name, it.Location, boxID)
 		}
 	}
+	// Top-level desk list also projects membership.
+	for _, p := range desk.Placeholders {
+		if p.ID != a.ID && p.ID != b.ID {
+			continue
+		}
+		if p.Location.Kind != workbench.LocBox || p.Location.BoxID != boxID {
+			t.Errorf("desk ph %s location = %+v, want projected box %s", p.ID, p.Location, boxID)
+		}
+	}
 
-	// Persist agrees: ItemIDs is truth and Location matches.
+	// Persist: ItemIDs is truth; members must not retain LocBox on the document.
 	doc, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -226,8 +462,8 @@ func TestMoveToBox_MembershipAndLocationAgree(t *testing.T) {
 		if !idSet[p.ID] {
 			continue
 		}
-		if p.Location.Kind != index.LocBox || p.Location.BoxID != boxID {
-			t.Errorf("persisted %s location = %+v", p.ID, p.Location)
+		if p.Location.Kind == index.LocBox {
+			t.Errorf("persisted member %s still has LocBox = %+v", p.ID, p.Location)
 		}
 	}
 }

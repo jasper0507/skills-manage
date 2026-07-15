@@ -106,12 +106,15 @@ func (w *Workbench) Rescan() error {
 // Desk returns the current desktop view (placeholders + recycle icon + boxes).
 // Names come from the last Open/Rescan inventory snapshot in the index.
 // Box contents are always exposed as icon placeholders.
+// In-box Location is projected from membership (ItemIDs); the index document
+// does not store parallel LocBox for members (E3.1 / ADR-0002).
 func (w *Workbench) Desk() Desk {
 	nameByID := make(map[string]string, len(w.doc.Skills))
 	for _, s := range w.doc.Skills {
 		nameByID[s.Identity] = s.Name
 	}
 
+	membership := w.membershipByPlaceholder()
 	phByID := make(map[string]Placeholder, len(w.doc.Placeholders))
 	phs := make([]Placeholder, 0, len(w.doc.Placeholders))
 	for _, p := range w.doc.Placeholders {
@@ -119,11 +122,12 @@ func (w *Workbench) Desk() Desk {
 		if name == "" {
 			name = filepath.Base(p.Identity)
 		}
+		m, isMember := membership[p.ID]
 		ph := Placeholder{
 			ID:       p.ID,
 			Identity: p.Identity,
 			Name:     name,
-			Location: p.Location,
+			Location: projectLocation(p.Location, m, isMember),
 		}
 		phs = append(phs, ph)
 		phByID[p.ID] = ph

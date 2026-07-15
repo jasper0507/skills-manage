@@ -8,11 +8,18 @@ type boxMembership struct {
 	compartmentID string // empty for simple boxes
 }
 
-// rehomeFromMembership makes box ItemIDs the membership source of truth and
-// derives placeholder Location from it. Prefers ItemIDs when Location diverges
-// ("in ItemIDs but Location says desktop" → LocBox; "Location says box but not
-// in ItemIDs" → free desktop cell). Drops unknown/recycle IDs from ItemIDs.
-// Does not touch recycle-bin placeholders' kind.
+// rehomeFromMembership normalizes the document to membership-truth shape:
+//
+//   - Box ItemIDs are the sole record of who is in a box/compartment (first claim
+//     wins; unknown / recycle / later-duplicate IDs are stripped).
+//   - Members keep no parallel in-box Location on the document (placement for
+//     them is membership alone).
+//   - Ghost LocBox without membership → free desktop cell in the viewport.
+//   - Non-recycle, non-member without a valid desktop cell → free viewport cell.
+//   - Recycle placeholders stay kind-only LocRecycle.
+//
+// Desk projects LocBox from membership for the external view; this function
+// only shapes the index document.
 func (w *Workbench) rehomeFromMembership() {
 	// phID → first membership claim (ItemIDs order wins; later duplicates stripped).
 	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
@@ -33,34 +40,39 @@ func (w *Workbench) rehomeFromMembership() {
 		}
 	}
 
-	// Derive Location from membership; free desktop for box-location ghosts.
+	// Placement: members drop LocBox; ghosts and invalid desktop get free cells.
+	// Free members' former desktop cells so subsequent ghost placement can reuse them.
 	occupied := w.occupiedDesktopCells()
 	for i := range w.doc.Placeholders {
 		p := &w.doc.Placeholders[i]
 		if p.Location.Kind == LocRecycle {
-			// Recycle is not a box member; strip any accidental box coords.
+			// Recycle is not a box member; strip any accidental box/desktop coords.
 			p.Location = index.Location{Kind: LocRecycle}
 			continue
 		}
-		if m, ok := claimed[p.ID]; ok {
-			loc := index.Location{Kind: LocBox, BoxID: m.boxID}
-			if m.compartmentID != "" {
-				loc.CompartmentID = m.compartmentID
-			}
-			// Leaving a desktop cell: free it for subsequent ghost placement.
+		if _, ok := claimed[p.ID]; ok {
+			// Membership is the only box truth — no parallel LocBox (or desktop) on disk.
 			if p.Location.Kind == LocDesktop {
 				delete(occupied, cell{p.Location.Row, p.Location.Col})
 			}
-			p.Location = loc
+			p.Location = index.Location{}
 			continue
 		}
-		// Not a box member.
-		if p.Location.Kind == LocBox {
+		// Not a box member: need a valid desktop placement.
+		if p.Location.Kind == LocBox || !validDesktopPlacement(p.Location) {
+			if p.Location.Kind == LocDesktop {
+				delete(occupied, cell{p.Location.Row, p.Location.Col})
+			}
 			free := nextFreeCellInViewport(occupied)
 			occupied[free] = true
 			p.Location = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
 		}
 	}
+}
+
+// validDesktopPlacement is true for kind=desktop with 1-based row/col.
+func validDesktopPlacement(loc index.Location) bool {
+	return loc.Kind == LocDesktop && loc.Row >= 1 && loc.Col >= 1
 }
 
 func (w *Workbench) cleanItemIDs(
@@ -94,4 +106,46 @@ func (w *Workbench) cleanItemIDs(
 		return nil
 	}
 	return out
+}
+
+// membershipByPlaceholder builds the first-claim map from current ItemIDs
+// (no mutation). Used by Desk to project LocBox for the external view.
+func (w *Workbench) membershipByPlaceholder() map[string]boxMembership {
+	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
+	for _, b := range w.doc.Boxes {
+		if b.Kind == BoxSimple {
+			for _, id := range b.ItemIDs {
+				if _, ok := claimed[id]; ok {
+					continue
+				}
+				claimed[id] = boxMembership{boxID: b.ID}
+			}
+			continue
+		}
+		for _, c := range b.Compartments {
+			for _, id := range c.ItemIDs {
+				if _, ok := claimed[id]; ok {
+					continue
+				}
+				claimed[id] = boxMembership{boxID: b.ID, compartmentID: c.ID}
+			}
+		}
+	}
+	return claimed
+}
+
+// projectLocation overlays membership as LocBox for Desk/HTTP views.
+// Recycle and true desktop placement pass through; members always project box.
+func projectLocation(loc index.Location, m boxMembership, isMember bool) index.Location {
+	if loc.Kind == LocRecycle {
+		return index.Location{Kind: LocRecycle}
+	}
+	if isMember {
+		out := index.Location{Kind: LocBox, BoxID: m.boxID}
+		if m.compartmentID != "" {
+			out.CompartmentID = m.compartmentID
+		}
+		return out
+	}
+	return loc
 }
