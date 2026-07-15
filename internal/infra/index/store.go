@@ -75,8 +75,8 @@ type BoxRecord struct {
 }
 
 // Legacy body-delete recycle lifecycle states (pre-R2). Still unmarshaled so old
-// index files load; product R2 recycle is placeholders with Location.Kind=recycle.
-// E2.2 may strip these on Open; Workbench no longer drives package lifecycle from them.
+// index files load; Workbench.Open strips RecycleBin rows and uses placeholders
+// with Location.Kind=recycle as the only product icon-bin members.
 const (
 	RecycleStateQuarantined = "quarantined"
 	RecycleStatePurging     = "purging"

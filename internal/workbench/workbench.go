@@ -44,8 +44,9 @@ func (w *Workbench) Inventory() (Inventory, error) {
 	return Inventory{Skills: skills}, nil
 }
 
-// Open loads the central index, reconciles with a fresh scan (places only brand-new skills),
-// and persists the desk. Does not run package purge or body-delete lifecycle.
+// Open loads the central index, normalizes legacy body-delete recycle metadata,
+// reconciles with a fresh scan (places only brand-new skills), and persists the desk.
+// Does not run package purge, isolate, or any Skill-package lifecycle.
 // Safe to call once at session start; subsequent sessions call Open again.
 func (w *Workbench) Open() error {
 	doc, err := w.store.Load()
@@ -53,6 +54,7 @@ func (w *Workbench) Open() error {
 		return fmt.Errorf("load index: %w", err)
 	}
 	w.doc = doc
+	w.normalizeLegacyIndex()
 	w.ensureRecycleDefault()
 	if err := w.reconcileFromScan(); err != nil {
 		return err
@@ -63,6 +65,22 @@ func (w *Workbench) Open() error {
 		return err
 	}
 	return nil
+}
+
+// normalizeLegacyIndex makes an on-disk document from tickets #2–#7 safe for R2:
+// drop body-delete RecycleEntry rows (quarantine path, purge-after, states) and
+// keep kind=recycle placeholders as the only icon-bin members. No filesystem ops.
+func (w *Workbench) normalizeLegacyIndex() {
+	// Product recycle is placeholders with LocRecycle — never the body lifecycle table.
+	w.doc.RecycleBin = nil
+
+	// Normalize recycle locations: bin members are kind-only (no desktop cell / box coords).
+	for i := range w.doc.Placeholders {
+		if w.doc.Placeholders[i].Location.Kind != LocRecycle {
+			continue
+		}
+		w.doc.Placeholders[i].Location = index.Location{Kind: LocRecycle}
+	}
 }
 
 // Rescan re-discovers inventory and places only skills that have no placeholder yet.
