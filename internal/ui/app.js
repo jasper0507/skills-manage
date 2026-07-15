@@ -197,8 +197,9 @@ function renderBinSide() {
   for (const e of state.recycleBin) {
     const div = document.createElement("div");
     div.className = "bin-item";
-    div.innerHTML = `<strong>${escapeHtml(e.name || e.identity)}</strong>
-      <div style="color:var(--dim);word-break:break-all">${escapeHtml(e.originalPath || "")}</div>`;
+    // R2: bin entries are placeholders {id, identity, name} — not body-delete paths.
+    div.innerHTML = `<strong>${escapeHtml(e.name || e.identity || e.id)}</strong>
+      <div style="color:var(--dim);word-break:break-all">${escapeHtml(e.identity || "")}</div>`;
     const btn = document.createElement("button");
     btn.textContent = "还原";
     btn.onclick = () => mut("/api/recycle/restore", { entryId: e.id }).catch(() => {});
@@ -485,8 +486,12 @@ function recycleIconEl() {
         disabled: !state.recycleBin.length,
         action: () => {
           if (!state.recycleBin.length) return;
-          const paths = state.recycleBin.map((e) => e.originalPath || e.quarantinePath).join("\n");
-          if (confirm(`清空回收站并真删？\n\n${paths}`)) {
+          const n = state.recycleBin.length;
+          if (
+            confirm(
+              `清空回收站？\n\n将丢弃 ${n} 个工作台图标（占位），不会删除本机 Skill 包。`
+            )
+          ) {
             mut("/api/recycle/empty", {}).catch(() => {});
           }
         },
@@ -737,50 +742,49 @@ async function showTrashModal() {
     return;
   }
 
-  const iconOnly = new Set(plan.iconOnlyIds || []);
-  const bodyByPh = new Map();
-  for (const b of plan.bodyItems || []) {
-    for (const pid of b.placeholderIds || []) {
-      bodyByPh.set(pid, b);
-    }
-  }
+  // R2 plan: enterBinIds (icon-level) + skippedIds (last-live refused).
+  const enter = new Set(plan.enterBinIds || []);
+  const skipped = new Set(plan.skippedIds || []);
 
   const rows = ids.map((id) => {
     const ph = phById(id);
-    const body = bodyByPh.get(id);
-    if (body) {
+    const name = ph?.name || id;
+    if (skipped.has(id)) {
       return {
-        name: body.name || ph?.name || id,
-        detail: `最后一枚 → 本体进回收站\n${body.path || ""}`,
-        last: true,
+        name,
+        detail: "最后一枚活占位 → 拒绝进站（保留工作台入口，不删 Skill 包）",
+      };
+    }
+    if (enter.has(id)) {
+      return {
+        name,
+        detail: "仅移除工作台图标（进回收站，可还原；不碰磁盘 Skill 包）",
       };
     }
     return {
-      name: ph?.name || id,
-      detail: iconOnly.has(id) ? "仅移除图标" : "删除",
-      last: false,
+      name,
+      detail: "跳过",
     };
   });
 
+  const canConfirm = enter.size > 0;
   const root = $("modal-root");
   root.innerHTML = `
     <div class="modal-back">
       <div class="modal">
-        <h3>删除</h3>
+        <h3>删除工作台图标</h3>
+        <p style="color:var(--dim);font-size:12px;margin:0 0 8px">只影响分类工作台占位，不会卸载本机 Skill。</p>
         <ul>
           ${rows
             .map(
               (r) =>
-                `<li><strong>${escapeHtml(r.name)}</strong> — ${escapeHtml(r.detail).replace(
-                  /\n/g,
-                  "<br>"
-                )}</li>`
+                `<li><strong>${escapeHtml(r.name)}</strong> — ${escapeHtml(r.detail)}</li>`
             )
             .join("")}
         </ul>
         <div class="actions">
           <button type="button" id="cancel-trash">取消</button>
-          <button type="button" class="primary" id="ok-trash">确定</button>
+          <button type="button" class="primary" id="ok-trash" ${canConfirm ? "" : "disabled"}>确定</button>
         </div>
       </div>
     </div>`;
@@ -789,6 +793,7 @@ async function showTrashModal() {
     root.innerHTML = "";
   };
   root.querySelector("#ok-trash").onclick = async () => {
+    if (!canConfirm) return;
     const confirmIds = ids;
     pendingTrashIds = null;
     root.innerHTML = "";

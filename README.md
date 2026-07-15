@@ -22,7 +22,7 @@ go build -o ./skills-manage ./cmd/skills-manage
 
 默认中央索引：`$CONFIG/skills-manage/index.json`（可用 `-index` 覆盖）。
 
-**说明：** 后端 E2 已落地：R2 图标级回收、Open 剥离旧 body 元数据、ItemIDs 为盒成员真源 + 文档快照回滚。薄 UI 可能仍引用旧 body 字段——UI 不在 E2 范围。
+**说明：** 后端 E2 已落地：R2 图标级回收、Open 剥离旧 body 元数据、ItemIDs 为盒成员真源 + 文档快照回滚。薄 UI 的删除/清空文案已对齐 R2（完整桌面交互 redesign 另开）。
 
 ## 目录结构（v1）
 

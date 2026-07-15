@@ -82,10 +82,6 @@ func (w *Workbench) movePlaceholdersToDesktopNoPersist(placeholderIDs []string, 
 	return nil
 }
 
-func (w *Workbench) skillAtDesktopCell(row, col int, excludePhID string) (string, bool) {
-	return w.skillAtDesktopCellExcluding(row, col, []string{excludePhID})
-}
-
 func (w *Workbench) skillAtDesktopCellExcluding(row, col int, excludePhIDs []string) (string, bool) {
 	ex := make(map[string]bool, len(excludePhIDs))
 	for _, id := range excludePhIDs {
