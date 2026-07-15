@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jasper0507/skills-manage/internal/quarantine"
+	"github.com/jasper0507/skills-manage/internal/infra/quarantine"
 )
 
 func writeSkill(t *testing.T, dir string) {

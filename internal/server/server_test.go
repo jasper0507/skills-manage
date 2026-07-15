@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jasper0507/skills-manage/internal/index"
+	"github.com/jasper0507/skills-manage/internal/infra/index"
 	"github.com/jasper0507/skills-manage/internal/server"
 	"github.com/jasper0507/skills-manage/internal/ui"
 	"github.com/jasper0507/skills-manage/internal/workbench"

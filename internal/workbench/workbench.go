@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jasper0507/skills-manage/internal/index"
-	"github.com/jasper0507/skills-manage/internal/quarantine"
-	"github.com/jasper0507/skills-manage/internal/scanner"
+	"github.com/jasper0507/skills-manage/internal/infra/index"
+	"github.com/jasper0507/skills-manage/internal/infra/quarantine"
+	"github.com/jasper0507/skills-manage/internal/infra/scanner"
 )
 
 // LocationKind is where a 占位 or system icon lives on the workbench.

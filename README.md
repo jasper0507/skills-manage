@@ -24,20 +24,36 @@ go build -o ./skills-manage ./cmd/skills-manage
 
 **删除 / 清空回收站会动磁盘上的 skill 包。** 测删除请用临时 `-root` 与 `-index`，不要直接对生产 skill 树乱点确认。
 
-## 架构（v1）
+## 目录结构（v1）
 
-| 模块 | 职责 |
-|------|------|
-| `internal/workbench` | 唯一产品门面（领域规则与测试主缝） |
-| `internal/scanner` | 扫描根 → realpath 身份 |
-| `internal/index` | 中央索引 JSON 原子读写 |
-| `internal/quarantine` | 同盘 rename 隔离 / 还原 / 真删 |
-| `internal/server` + `internal/ui` | 薄 HTTP + 嵌入静态前端 |
+参考常见 Go 分层，按**本产品**裁剪（无 MySQL/Redis/用户业务模块）：
+
+```
+cmd/skills-manage/main.go     # 入口，只调用 internal/app
+config/                       # 配置解析与默认值（扫描根、索引路径、listen）
+internal/
+  app/                        # 组装配置 + Workbench + 命令（inventory/desk/serve）
+  workbench/                  # 领域门面（唯一产品主缝 / 主测缝）
+  server/                     # 薄 HTTP：路由、handler、短生命周期 Run
+  ui/                         # 嵌入静态前端
+  infra/
+    scanner/                  # 扫描根 → realpath 身份
+    index/                    # 中央索引 JSON 原子读写
+    quarantine/               # 同盘 rename 隔离 / 还原 / 真删
+```
+
+| 你参考的模板 | 本仓库对应 |
+|--------------|------------|
+| `cmd` → `internal/app` 组装 | `cmd` + `internal/app` |
+| `config/` | `config/`（当前为 flag/默认值，非 yaml 文件） |
+| `infra/mysql|redis` | `infra/scanner|index|quarantine` |
+| `router` + `server` | `internal/server`（`router.go` + `run.go`） |
+| `user/handler|service|repo` | **不拆**：领域集中在 `workbench` 深模块门面 |
 
 ## 阶段状态
 
 - **v1 领域 + CLI/HTTP**：#2–#7 已实现，可端到端使用。
-- **前端**：可用但未定稿（交互/视觉/框架待另开讨论）；不以 `prototypes/` 为生产源码。
+- **前端**：可用但未定稿；不以 `prototypes/` 为生产源码。
 - **非 v1**：挑选器 / fzf / 市场 / 常驻 daemon。
 
 ## 原型
