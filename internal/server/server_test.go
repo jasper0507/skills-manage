@@ -179,7 +179,14 @@ func TestPOSTTrashPlan_MapsToWorkbench(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("plan status = %d %v", code, plan)
 	}
-	bodyItems, _ := plan["bodyItems"].([]any)
+	// Empty branches encode as JSON arrays, not null (stable frontend contract).
+	if plan["iconOnlyIds"] == nil {
+		t.Fatal("iconOnlyIds must be [] not null")
+	}
+	bodyItems, ok := plan["bodyItems"].([]any)
+	if !ok {
+		t.Fatalf("bodyItems type = %T, want array (not null)", plan["bodyItems"])
+	}
 	if len(bodyItems) != 1 {
 		t.Fatalf("bodyItems = %v, want 1 (last placeholder)", bodyItems)
 	}
@@ -255,6 +262,26 @@ func TestPOSTMoveManyDesktop_PlacesWithoutAutoBox(t *testing.T) {
 		if loc["kind"] != "desktop" {
 			t.Errorf("%s kind = %v, want desktop", p["name"], loc["kind"])
 		}
+	}
+}
+
+func TestPOSTMoveRecycle_MapsToWorkbench(t *testing.T) {
+	srv, wb := openServer(t, "alpha")
+	code, state := doJSON(t, srv.Handler(), http.MethodPost, "/api/recycle/move-desktop", map[string]any{
+		"row": 3,
+		"col": 4,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status=%d body=%v", code, state)
+	}
+	desk := state["desk"].(map[string]any)
+	ri := desk["recycleIcon"].(map[string]any)
+	loc := ri["location"].(map[string]any)
+	if int(loc["row"].(float64)) != 3 || int(loc["col"].(float64)) != 4 {
+		t.Fatalf("recycle location = %v, want (3,4)", loc)
+	}
+	if r := wb.Desk().RecycleIcon.Location; r.Row != 3 || r.Col != 4 {
+		t.Fatalf("Workbench recycle = %+v", r)
 	}
 }
 

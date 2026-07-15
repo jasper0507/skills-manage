@@ -89,8 +89,8 @@ func (s *Server) Handler() http.Handler {
 // --- response types (JSON view of Workbench; no second domain model) ---
 
 type stateResponse struct {
-	Desk       workbench.Desk           `json:"desk"`
-	RecycleBin []workbench.RecycleView  `json:"recycleBin"`
+	Desk       workbench.Desk          `json:"desk"`
+	RecycleBin []workbench.RecycleView `json:"recycleBin"`
 }
 
 type errorBody struct {
@@ -99,9 +99,13 @@ type errorBody struct {
 
 func (s *Server) writeState(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	bin := s.wb.RecycleBin()
+	if bin == nil {
+		bin = []workbench.RecycleView{}
+	}
 	resp := stateResponse{
 		Desk:       s.wb.Desk(),
-		RecycleBin: s.wb.RecycleBin(),
+		RecycleBin: bin,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }

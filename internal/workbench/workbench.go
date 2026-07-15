@@ -1800,6 +1800,11 @@ func (w *Workbench) ConfirmTrash(placeholderIDs []string) error {
 }
 
 func (w *Workbench) planTrash(placeholderIDs []string) (TrashPlan, error) {
+	// Always non-nil slices so JSON encodes [] not null (stable HTTP contract).
+	plan := TrashPlan{
+		IconOnlyIDs: []string{},
+		BodyItems:   []BodyTrashPlan{},
+	}
 	// Dedupe requested ids; ignore unknown and already-recycled.
 	requested := make([]string, 0, len(placeholderIDs))
 	seenReq := map[string]bool{}
@@ -1840,7 +1845,6 @@ func (w *Workbench) planTrash(placeholderIDs []string) (TrashPlan, error) {
 		g.ids = append(g.ids, id)
 	}
 
-	var plan TrashPlan
 	for _, ident := range order {
 		g := byIdentity[ident]
 		liveIDs := w.livePlaceholderIDs(ident)
@@ -1866,7 +1870,7 @@ func (w *Workbench) planTrash(placeholderIDs []string) (TrashPlan, error) {
 			Identity:       ident,
 			Path:           ident,
 			Name:           name,
-			PlaceholderIDs: liveIDs,
+			PlaceholderIDs: append([]string(nil), liveIDs...),
 		})
 	}
 	return plan, nil
