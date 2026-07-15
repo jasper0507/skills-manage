@@ -42,123 +42,126 @@ func (w *Workbench) SetClipboard(mode string, placeholderIDs []string) error {
 // PasteToDesktop pastes the clipboard onto free desktop grid cells near (row, col).
 // Copy mode duplicates icons (same skill identity); cut mode moves and clears the clipboard.
 func (w *Workbench) PasteToDesktop(row, col int) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	if row < 1 || col < 1 {
-		return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
-	}
-	cb := w.clipboard
-	if cb == nil || len(cb.PlaceholderIDs) == 0 {
-		return fmt.Errorf("clipboard empty")
-	}
+	return w.withMutation(func() error {
+		if row < 1 || col < 1 {
+			return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
+		}
+		cb := w.clipboard
+		if cb == nil || len(cb.PlaceholderIDs) == 0 {
+			return fmt.Errorf("clipboard empty")
+		}
 
-	occupied := w.occupiedDesktopCells()
-	preferRow, preferCol := row, col
+		occupied := w.occupiedDesktopCells()
+		preferRow, preferCol := row, col
 
-	if cb.Mode == ClipCopy {
+		if cb.Mode == ClipCopy {
+			for _, srcID := range cb.PlaceholderIDs {
+				srcIdx, ok := w.placeholderIndex(srcID)
+				if !ok {
+					continue
+				}
+				src := w.doc.Placeholders[srcIdx]
+				free := nextFreeCell(occupied, preferCol, preferRow)
+				occupied[free] = true
+				preferRow = free.row
+				// next paste stacks downward in the same preferred column first.
+				newID := w.newPlaceholderID()
+				w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
+					ID:       newID,
+					Identity: src.Identity,
+					Location: index.Location{Kind: LocDesktop, Row: free.row, Col: free.col},
+				})
+			}
+			// Copy mode keeps clipboard.
+			return nil
+		}
+
+		// Cut: move existing placeholders. Free vacated desktop cells so multi-item
+		// paste and self-cell paste can land on the requested free slots.
 		for _, srcID := range cb.PlaceholderIDs {
 			srcIdx, ok := w.placeholderIndex(srcID)
 			if !ok {
 				continue
 			}
-			src := w.doc.Placeholders[srcIdx]
+			if w.doc.Placeholders[srcIdx].Location.Kind == LocRecycle {
+				continue
+			}
+			loc := w.doc.Placeholders[srcIdx].Location
+			if loc.Kind == LocDesktop {
+				delete(occupied, cell{loc.Row, loc.Col})
+			}
+			w.removePlaceholderFromContainers(srcID)
+			// Prefer the exact requested cell when free (first mover), else next free.
 			free := nextFreeCell(occupied, preferCol, preferRow)
+			if !occupied[cell{row, col}] {
+				free = cell{row, col}
+			}
 			occupied[free] = true
-			preferRow = free.row
-			// next paste stacks downward in the same preferred column first.
-			newID := w.newPlaceholderID()
-			w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
-				ID:       newID,
-				Identity: src.Identity,
-				Location: index.Location{Kind: LocDesktop, Row: free.row, Col: free.col},
-			})
+			preferRow = free.row + 1
+			w.doc.Placeholders[srcIdx].Location = index.Location{
+				Kind: LocDesktop, Row: free.row, Col: free.col,
+			}
 		}
-		// Copy mode keeps clipboard.
-		return w.persist()
-	}
-
-	// Cut: move existing placeholders. Free vacated desktop cells so multi-item
-	// paste and self-cell paste can land on the requested free slots.
-	for _, srcID := range cb.PlaceholderIDs {
-		srcIdx, ok := w.placeholderIndex(srcID)
-		if !ok {
-			continue
-		}
-		if w.doc.Placeholders[srcIdx].Location.Kind == LocRecycle {
-			continue
-		}
-		loc := w.doc.Placeholders[srcIdx].Location
-		if loc.Kind == LocDesktop {
-			delete(occupied, cell{loc.Row, loc.Col})
-		}
-		w.removePlaceholderFromContainers(srcID)
-		// Prefer the exact requested cell when free (first mover), else next free.
-		free := nextFreeCell(occupied, preferCol, preferRow)
-		if !occupied[cell{row, col}] {
-			free = cell{row, col}
-		}
-		occupied[free] = true
-		preferRow = free.row + 1
-		w.doc.Placeholders[srcIdx].Location = index.Location{
-			Kind: LocDesktop, Row: free.row, Col: free.col,
-		}
-	}
-	w.clipboard = nil
-	return w.persist()
+		w.clipboard = nil
+		return nil
+	})
 }
 
 // PasteToBox pastes the clipboard into a box's current compartment (or simple box body).
 // Empty compartmentID uses the active compartment for composite boxes.
 func (w *Workbench) PasteToBox(boxID, compartmentID string) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	cb := w.clipboard
-	if cb == nil || len(cb.PlaceholderIDs) == 0 {
-		return fmt.Errorf("clipboard empty")
-	}
-	bIdx, ok := w.boxIndex(boxID)
-	if !ok {
-		return fmt.Errorf("unknown box %q", boxID)
-	}
-	box := &w.doc.Boxes[bIdx]
+	return w.withMutation(func() error {
+		cb := w.clipboard
+		if cb == nil || len(cb.PlaceholderIDs) == 0 {
+			return fmt.Errorf("clipboard empty")
+		}
+		bIdx, ok := w.boxIndex(boxID)
+		if !ok {
+			return fmt.Errorf("unknown box %q", boxID)
+		}
+		box := &w.doc.Boxes[bIdx]
 
-	if cb.Mode == ClipCopy {
+		if cb.Mode == ClipCopy {
+			// Resolve target once so a bad compartment fails before any append.
+			if _, err := w.locationForBoxMember(box, boxID, compartmentID); err != nil {
+				return err
+			}
+			for _, srcID := range cb.PlaceholderIDs {
+				srcIdx, ok := w.placeholderIndex(srcID)
+				if !ok {
+					continue
+				}
+				src := w.doc.Placeholders[srcIdx]
+				newID := w.newPlaceholderID()
+				loc, err := w.locationForBoxMember(box, boxID, compartmentID)
+				if err != nil {
+					return err
+				}
+				// Membership + Location together (ItemIDs is membership truth).
+				if err := w.appendPlaceholderToBox(box, newID, loc.CompartmentID); err != nil {
+					return err
+				}
+				w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
+					ID:       newID,
+					Identity: src.Identity,
+					Location: loc,
+				})
+			}
+			return nil
+		}
+
+		// Cut: move into box (same membership rules as MovePlaceholderToBox).
 		for _, srcID := range cb.PlaceholderIDs {
-			srcIdx, ok := w.placeholderIndex(srcID)
-			if !ok {
+			if _, ok := w.placeholderIndex(srcID); !ok {
 				continue
 			}
-			src := w.doc.Placeholders[srcIdx]
-			newID := w.newPlaceholderID()
-			loc, err := w.locationForBoxMember(box, boxID, compartmentID)
-			if err != nil {
-				return err
-			}
-			w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
-				ID:       newID,
-				Identity: src.Identity,
-				Location: loc,
-			})
-			if err := w.appendPlaceholderToBox(box, newID, loc.CompartmentID); err != nil {
+			if err := w.movePlaceholderToBoxNoPersist(srcID, boxID, compartmentID); err != nil {
 				return err
 			}
 		}
-		return w.persist()
-	}
-
-	// Cut: move into box (same membership rules as MovePlaceholderToBox).
-	for _, srcID := range cb.PlaceholderIDs {
-		if _, ok := w.placeholderIndex(srcID); !ok {
-			continue
-		}
-		if err := w.movePlaceholderToBoxNoPersist(srcID, boxID, compartmentID); err != nil {
-			return err
-		}
-	}
-	w.clipboard = nil
-	return w.persist()
+		w.clipboard = nil
+		return nil
+	})
 }
 
 func (w *Workbench) locationForBoxMember(box *index.BoxRecord, boxID, compartmentID string) (index.Location, error) {
@@ -283,38 +286,37 @@ func (w *Workbench) ToggleSelected(placeholderID string) error {
 // MovePlaceholdersToBox bulk-files placeholders into a box's current compartment.
 // Used for multi-select drag into a box. Unknown and recycle placeholders are skipped.
 func (w *Workbench) MovePlaceholdersToBox(placeholderIDs []string, boxID, compartmentID string) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	bIdx, ok := w.boxIndex(boxID)
-	if !ok {
-		return fmt.Errorf("unknown box %q", boxID)
-	}
-	// Pre-resolve compartment so a bad target fails before any mutation.
-	if _, err := w.locationForBoxMember(&w.doc.Boxes[bIdx], boxID, compartmentID); err != nil {
-		return err
-	}
-
-	ids := make([]string, 0, len(placeholderIDs))
-	seen := make(map[string]bool, len(placeholderIDs))
-	for _, id := range placeholderIDs {
-		if seen[id] {
-			continue
-		}
-		idx, ok := w.placeholderIndex(id)
+	return w.withMutation(func() error {
+		bIdx, ok := w.boxIndex(boxID)
 		if !ok {
-			continue
+			return fmt.Errorf("unknown box %q", boxID)
 		}
-		if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
-			continue
-		}
-		seen[id] = true
-		ids = append(ids, id)
-	}
-	for _, id := range ids {
-		if err := w.movePlaceholderToBoxNoPersist(id, boxID, compartmentID); err != nil {
+		// Pre-resolve compartment so a bad target fails before any mutation.
+		if _, err := w.locationForBoxMember(&w.doc.Boxes[bIdx], boxID, compartmentID); err != nil {
 			return err
 		}
-	}
-	return w.persist()
+
+		ids := make([]string, 0, len(placeholderIDs))
+		seen := make(map[string]bool, len(placeholderIDs))
+		for _, id := range placeholderIDs {
+			if seen[id] {
+				continue
+			}
+			idx, ok := w.placeholderIndex(id)
+			if !ok {
+				continue
+			}
+			if w.doc.Placeholders[idx].Location.Kind == LocRecycle {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+		for _, id := range ids {
+			if err := w.movePlaceholderToBoxNoPersist(id, boxID, compartmentID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

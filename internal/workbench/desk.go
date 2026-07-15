@@ -17,9 +17,12 @@ func (w *Workbench) MovePlaceholderToDesktop(placeholderID string, row, col int)
 // If the target cell holds a non-mover skill, all movers merge with it into a 普通盒子.
 // Otherwise each mover is parked then placed into free cells starting at (row, col).
 func (w *Workbench) MovePlaceholdersToDesktop(placeholderIDs []string, row, col int) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
+	return w.withMutation(func() error {
+		return w.movePlaceholdersToDesktopNoPersist(placeholderIDs, row, col)
+	})
+}
+
+func (w *Workbench) movePlaceholdersToDesktopNoPersist(placeholderIDs []string, row, col int) error {
 	if row < 1 || col < 1 {
 		return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
 	}
@@ -47,10 +50,11 @@ func (w *Workbench) MovePlaceholdersToDesktop(placeholderIDs []string, row, col 
 	// Match prototype: only non-selected occupants trigger auto-box with all movers.
 	if occID, found := w.skillAtDesktopCellExcluding(row, col, ids); found {
 		all := append([]string{occID}, ids...)
-		return w.mergeIconsIntoAutoBox(all, row, col)
+		return w.mergeIconsIntoAutoBoxNoPersist(all, row, col)
 	}
 
-	// Park movers so they do not block free-cell search.
+	// Park movers so they do not block free-cell search. Membership strip + location
+	// update together (single write path for leave-box → desktop).
 	for _, id := range ids {
 		idx, _ := w.placeholderIndex(id)
 		w.removePlaceholderFromContainers(id)
@@ -75,7 +79,7 @@ func (w *Workbench) MovePlaceholdersToDesktop(placeholderIDs []string, row, col 
 			startCol = 1
 		}
 	}
-	return w.persist()
+	return nil
 }
 
 func (w *Workbench) skillAtDesktopCell(row, col int, excludePhID string) (string, bool) {
@@ -134,8 +138,8 @@ func filterID(ids []string, remove string) []string {
 	return out
 }
 
-// mergeIconsIntoAutoBox creates a sequenced 普通盒子 containing the given placeholders.
-func (w *Workbench) mergeIconsIntoAutoBox(phIDs []string, nearRow, nearCol int) error {
+// mergeIconsIntoAutoBoxNoPersist creates a sequenced 普通盒子 containing the given placeholders.
+func (w *Workbench) mergeIconsIntoAutoBoxNoPersist(phIDs []string, nearRow, nearCol int) error {
 	// Deduplicate while preserving order.
 	seen := make(map[string]bool, len(phIDs))
 	ids := make([]string, 0, len(phIDs))
@@ -166,6 +170,7 @@ func (w *Workbench) mergeIconsIntoAutoBox(phIDs []string, nearRow, nearCol int) 
 	}
 	pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH, "")
 	// Restore so failure leaves state unchanged; success path rewrites locations below.
+	// (Caller withMutation also snapshots the full document.)
 	for _, s := range saved {
 		w.doc.Placeholders[s.idx].Location = s.loc
 	}
@@ -199,14 +204,15 @@ func (w *Workbench) mergeIconsIntoAutoBox(phIDs []string, nearRow, nearCol int) 
 		if !ok {
 			continue
 		}
+		// Membership + Location together (ItemIDs is membership truth).
+		box.ItemIDs = append(box.ItemIDs, id)
 		w.doc.Placeholders[idx].Location = index.Location{
 			Kind:  LocBox,
 			BoxID: boxID,
 		}
-		box.ItemIDs = append(box.ItemIDs, id)
 	}
 	w.doc.Boxes = append(w.doc.Boxes, box)
-	return w.persist()
+	return nil
 }
 
 func (w *Workbench) ensureRecycleDefault() {

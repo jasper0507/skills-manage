@@ -249,6 +249,12 @@ func emptyDocument() Document {
 	}
 }
 
+// CloneDocument returns a deep copy of the central index document.
+// Used by Workbench for mutation snapshots (rollback on failure).
+func CloneDocument(doc Document) Document {
+	return cloneDocument(doc)
+}
+
 func cloneDocument(doc Document) Document {
 	out := doc
 	if doc.Placeholders != nil {
@@ -273,6 +279,8 @@ func cloneDocument(doc Document) Document {
 				out.RecycleBin[i].PlaceholderIDs = append([]string(nil), e.PlaceholderIDs...)
 			}
 		}
+	} else {
+		out.RecycleBin = nil
 	}
 	return out
 }

@@ -23,55 +23,53 @@ func (w *Workbench) RecycleIconAction(action string) error {
 // If the cell is occupied by a skill icon, the recycle icon takes the nearest free cell
 // (it never auto-boxes with a skill).
 func (w *Workbench) MoveRecycleToDesktop(row, col int) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	if row < 1 || col < 1 {
-		return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
-	}
-	// Park recycle so it does not block free-cell search for its own move.
-	w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
-	occupied := w.occupiedDesktopCells()
-	free := cell{row, col}
-	if occupied[free] {
-		free = nextFreeCell(occupied, col, row)
-	}
-	w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
-	return w.persist()
+	return w.withMutation(func() error {
+		if row < 1 || col < 1 {
+			return fmt.Errorf("invalid grid cell (%d,%d)", row, col)
+		}
+		// Park recycle so it does not block free-cell search for its own move.
+		w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
+		occupied := w.occupiedDesktopCells()
+		free := cell{row, col}
+		if occupied[free] {
+			free = nextFreeCell(occupied, col, row)
+		}
+		w.doc.RecycleIcon = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
+		return nil
+	})
 }
 
 // MoveRecycleToBox puts the 回收站 system icon into a box (simple or current/compartment).
 func (w *Workbench) MoveRecycleToBox(boxID, compartmentID string) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	bIdx, ok := w.boxIndex(boxID)
-	if !ok {
-		return fmt.Errorf("unknown box %q", boxID)
-	}
-	box := &w.doc.Boxes[bIdx]
-	loc := index.Location{Kind: LocBox, BoxID: boxID}
-	if box.Kind == BoxSimple {
-		loc.CompartmentID = ""
-	} else {
-		cid := compartmentID
-		if cid == "" {
-			cid = box.ActiveCompartmentID
+	return w.withMutation(func() error {
+		bIdx, ok := w.boxIndex(boxID)
+		if !ok {
+			return fmt.Errorf("unknown box %q", boxID)
 		}
-		found := false
-		for _, c := range box.Compartments {
-			if c.ID == cid {
-				found = true
-				break
+		box := &w.doc.Boxes[bIdx]
+		loc := index.Location{Kind: LocBox, BoxID: boxID}
+		if box.Kind == BoxSimple {
+			loc.CompartmentID = ""
+		} else {
+			cid := compartmentID
+			if cid == "" {
+				cid = box.ActiveCompartmentID
 			}
+			found := false
+			for _, c := range box.Compartments {
+				if c.ID == cid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("unknown compartment %q in box %q", cid, boxID)
+			}
+			loc.CompartmentID = cid
 		}
-		if !found {
-			return fmt.Errorf("unknown compartment %q in box %q", cid, boxID)
-		}
-		loc.CompartmentID = cid
-	}
-	w.doc.RecycleIcon = loc
-	return w.persist()
+		w.doc.RecycleIcon = loc
+		return nil
+	})
 }
 
 // TrashPlan describes the effect of ConfirmTrash for the given placeholder ids (R2).
@@ -129,30 +127,30 @@ func (w *Workbench) PlanTrash(placeholderIDs []string) (TrashPlan, error) {
 //
 // Skill packages are never isolated, renamed, or deleted.
 func (w *Workbench) ConfirmTrash(placeholderIDs []string) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	plan, err := w.planTrash(placeholderIDs)
-	if err != nil {
-		return err
-	}
-	if len(plan.EnterBinIDs) == 0 {
-		if len(plan.SkippedIDs) > 0 {
-			return fmt.Errorf("refuse enter-bin: last live placeholder for identity")
+	return w.withMutation(func() error {
+		plan, err := w.planTrash(placeholderIDs)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("no valid placeholders to trash")
-	}
-
-	for _, id := range plan.EnterBinIDs {
-		w.removePlaceholderFromContainers(id)
-		if idx, ok := w.placeholderIndex(id); ok {
-			w.doc.Placeholders[idx].Location = index.Location{Kind: LocRecycle}
+		if len(plan.EnterBinIDs) == 0 {
+			if len(plan.SkippedIDs) > 0 {
+				return fmt.Errorf("refuse enter-bin: last live placeholder for identity")
+			}
+			return fmt.Errorf("no valid placeholders to trash")
 		}
-	}
 
-	w.pruneClipboardAfterTrash()
-	w.selectedIDs = nil
-	return w.persist()
+		for _, id := range plan.EnterBinIDs {
+			// Strip box membership then set recycle location (single write path).
+			w.removePlaceholderFromContainers(id)
+			if idx, ok := w.placeholderIndex(id); ok {
+				w.doc.Placeholders[idx].Location = index.Location{Kind: LocRecycle}
+			}
+		}
+
+		w.pruneClipboardAfterTrash()
+		w.selectedIDs = nil
+		return nil
+	})
 }
 
 func (w *Workbench) planTrash(placeholderIDs []string) (TrashPlan, error) {
@@ -280,41 +278,39 @@ func (w *Workbench) pruneClipboardAfterTrash() {
 // Restore returns an in-bin 占位 to a free desktop grid cell.
 // entryID is the placeholder id (see RecycleView.ID). No package rename.
 func (w *Workbench) Restore(entryID string) error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	idx, ok := w.placeholderIndex(entryID)
-	if !ok {
-		return fmt.Errorf("recycle entry %q not found", entryID)
-	}
-	if w.doc.Placeholders[idx].Location.Kind != LocRecycle {
-		return fmt.Errorf("recycle entry %q not found", entryID)
-	}
+	return w.withMutation(func() error {
+		idx, ok := w.placeholderIndex(entryID)
+		if !ok {
+			return fmt.Errorf("recycle entry %q not found", entryID)
+		}
+		if w.doc.Placeholders[idx].Location.Kind != LocRecycle {
+			return fmt.Errorf("recycle entry %q not found", entryID)
+		}
 
-	occupied := w.occupiedDesktopCells()
-	free := nextFreeCellInViewport(occupied)
-	w.doc.Placeholders[idx].Location = index.Location{
-		Kind: LocDesktop, Row: free.row, Col: free.col,
-	}
-	return w.persist()
+		occupied := w.occupiedDesktopCells()
+		free := nextFreeCellInViewport(occupied)
+		w.doc.Placeholders[idx].Location = index.Location{
+			Kind: LocDesktop, Row: free.row, Col: free.col,
+		}
+		return nil
+	})
 }
 
 // EmptyRecycleBin discards all in-bin placeholder records only.
 // Skill packages on disk are never deleted.
 func (w *Workbench) EmptyRecycleBin() error {
-	if err := w.requireOpen(); err != nil {
-		return err
-	}
-	var toDrop []string
-	for _, p := range w.doc.Placeholders {
-		if p.Location.Kind == LocRecycle {
-			toDrop = append(toDrop, p.ID)
+	return w.withMutation(func() error {
+		var toDrop []string
+		for _, p := range w.doc.Placeholders {
+			if p.Location.Kind == LocRecycle {
+				toDrop = append(toDrop, p.ID)
+			}
 		}
-	}
-	for _, id := range toDrop {
-		w.removePlaceholderEntirely(id)
-	}
-	// Drop any legacy body-delete recycle entries from the index document.
-	w.doc.RecycleBin = nil
-	return w.persist()
+		for _, id := range toDrop {
+			w.removePlaceholderEntirely(id)
+		}
+		// Drop any legacy body-delete recycle entries from the index document.
+		w.doc.RecycleBin = nil
+		return nil
+	})
 }

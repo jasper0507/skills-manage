@@ -22,7 +22,7 @@ go build -o ./skills-manage ./cmd/skills-manage
 
 默认中央索引：`$CONFIG/skills-manage/index.json`（可用 `-index` 覆盖）。
 
-**说明：** 后端回收站已对齐 R2（图标级软回收）；`infra/quarantine` 已移除；Open 会剥离旧 body `RecycleEntry`。E2 余下 rehome/快照（#11）。薄 UI 可能仍引用旧 body 字段——UI 不在 E2 范围。
+**说明：** 后端 E2 已落地：R2 图标级回收、Open 剥离旧 body 元数据、ItemIDs 为盒成员真源 + 文档快照回滚。薄 UI 可能仍引用旧 body 字段——UI 不在 E2 范围。
 
 ## 目录结构（v1）
 
@@ -44,7 +44,7 @@ internal/
 ## 阶段状态
 
 - **产品共识：** R2 图标级回收站；禁止最后一枚活占位进站；禁止 Skill 本体删除。见 `CONTEXT.md` / ADR-0001。
-- **代码：** #2–#7 骨架 + **E2.1** R2 回收 / 去 body-delete + **E2.2** Open 旧索引；E2.3 待做。
+- **代码：** #2–#7 骨架 + **E2**（R2 回收、Open 旧索引、rehome/快照）已完成。
 - **前端：** 可用但未定稿；不以 `prototypes/` 为生产源码。
 - **非 v1：** 挑选器 / fzf / 市场 / 常驻 daemon / Skill 包隔离真删。
 

@@ -55,10 +55,15 @@ func (w *Workbench) Open() error {
 	}
 	w.doc = doc
 	w.normalizeLegacyIndex()
+	// Recycle icon default before free-cell repair so ghosts do not land on (1,1).
 	w.ensureRecycleDefault()
+	// ItemIDs is membership truth; repair Location before scan placement uses cells.
+	w.rehomeFromMembership()
 	if err := w.reconcileFromScan(); err != nil {
 		return err
 	}
+	// Rehome again so any reconcile side effects stay consistent (usually no-op).
+	w.rehomeFromMembership()
 	w.opened = true
 	if err := w.persist(); err != nil {
 		w.opened = false
@@ -89,10 +94,13 @@ func (w *Workbench) Rescan() error {
 	if !w.opened {
 		return w.Open()
 	}
-	if err := w.reconcileFromScan(); err != nil {
-		return err
-	}
-	return w.persist()
+	return w.withMutation(func() error {
+		if err := w.reconcileFromScan(); err != nil {
+			return err
+		}
+		w.rehomeFromMembership()
+		return nil
+	})
 }
 
 // Desk returns the current desktop view (placeholders + recycle icon + boxes).
