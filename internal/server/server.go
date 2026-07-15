@@ -75,3 +75,24 @@ func decodeJSON(r *http.Request, dst any) error {
 	}
 	return nil
 }
+
+// lockState runs fn under the server mutex and writes desk state on success.
+// Domain errors map to 400 (thin UI contract).
+func (s *Server) lockState(w http.ResponseWriter, fn func() error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := fn(); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeState(w)
+}
+
+// mutateJSON decodes JSON body into dst, then lockState(fn).
+func (s *Server) mutateJSON(w http.ResponseWriter, r *http.Request, dst any, fn func() error) {
+	if err := decodeJSON(r, dst); err != nil {
+		s.writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.lockState(w, fn)
+}

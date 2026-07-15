@@ -410,7 +410,7 @@ func TestOpen_Rehome_LocationBoxWithoutMembership_GoesDesktop(t *testing.T) {
 }
 
 // Happy path place/move: Desk projects LocBox from membership; document stores
-// ItemIDs only (no parallel LocBox) after withMutation normalize (E3.1).
+// ItemIDs only (no parallel LocBox) via admitMember write path (E3.1/E3.2).
 func TestMoveToBox_MembershipAndLocationAgree(t *testing.T) {
 	wb, store := openDeskWithSkills(t, "a", "b")
 	desk := wb.Desk()

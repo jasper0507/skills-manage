@@ -11,17 +11,9 @@ type clipboardReq struct {
 
 func (s *Server) handleSetClipboard(w http.ResponseWriter, r *http.Request) {
 	var req clipboardReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.SetClipboard(req.Mode, req.PlaceholderIDs); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.SetClipboard(req.Mode, req.PlaceholderIDs)
+	})
 }
 
 type pasteDesktopReq struct {
@@ -31,17 +23,9 @@ type pasteDesktopReq struct {
 
 func (s *Server) handlePasteDesktop(w http.ResponseWriter, r *http.Request) {
 	var req pasteDesktopReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.PasteToDesktop(req.Row, req.Col); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.PasteToDesktop(req.Row, req.Col)
+	})
 }
 
 type pasteBoxReq struct {
@@ -51,17 +35,9 @@ type pasteBoxReq struct {
 
 func (s *Server) handlePasteBox(w http.ResponseWriter, r *http.Request) {
 	var req pasteBoxReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.PasteToBox(req.BoxID, req.CompartmentID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.PasteToBox(req.BoxID, req.CompartmentID)
+	})
 }
 
 type phIDReq struct {
@@ -70,37 +46,21 @@ type phIDReq struct {
 
 func (s *Server) handleEnableMultiSelect(w http.ResponseWriter, r *http.Request) {
 	var req phIDReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.EnableMultiSelect(req.PlaceholderID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.EnableMultiSelect(req.PlaceholderID)
+	})
 }
 
 func (s *Server) handleDisableMultiSelect(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.wb.DisableMultiSelect()
-	s.writeState(w)
+	s.lockState(w, func() error {
+		s.wb.DisableMultiSelect()
+		return nil
+	})
 }
 
 func (s *Server) handleToggleSelected(w http.ResponseWriter, r *http.Request) {
 	var req phIDReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.ToggleSelected(req.PlaceholderID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.ToggleSelected(req.PlaceholderID)
+	})
 }

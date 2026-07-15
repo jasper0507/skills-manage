@@ -7,18 +7,6 @@ import (
 	"github.com/jasper0507/skills-manage/internal/infra/index"
 )
 
-// RecycleIconAction refuses copy/cut/delete of the 回收站 system icon.
-// The recycle affordance is movable and may enter a box, but is never copyable,
-// cuttable, or deletable as an icon.
-func (w *Workbench) RecycleIconAction(action string) error {
-	switch action {
-	case "copy", "cut", "delete":
-		return fmt.Errorf("recycle system icon cannot be copied, cut, or deleted")
-	default:
-		return fmt.Errorf("unknown recycle action %q", action)
-	}
-}
-
 // MoveRecycleToDesktop places the 回收站 system icon on a desktop grid cell.
 // If the cell is occupied by a skill icon, the recycle icon takes the nearest free cell
 // (it never auto-boxes with a skill).
@@ -128,7 +116,7 @@ func (w *Workbench) ConfirmTrash(placeholderIDs []string) error {
 			// Strip box membership then set recycle location (single write path).
 			w.removePlaceholderFromContainers(id)
 			if idx, ok := w.placeholderIndex(id); ok {
-				w.doc.Placeholders[idx].Location = index.Location{Kind: LocRecycle}
+				w.setRecyclePlacement(idx)
 			}
 		}
 
@@ -271,11 +259,7 @@ func (w *Workbench) Restore(entryID string) error {
 			return fmt.Errorf("recycle entry %q not found", entryID)
 		}
 
-		occupied := w.occupiedDesktopCells()
-		free := nextFreeCellInViewport(occupied)
-		w.doc.Placeholders[idx].Location = index.Location{
-			Kind: LocDesktop, Row: free.row, Col: free.col,
-		}
+		w.placeOneInViewport(idx)
 		return nil
 	})
 }

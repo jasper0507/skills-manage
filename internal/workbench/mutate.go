@@ -4,10 +4,10 @@ import "github.com/jasper0507/skills-manage/internal/infra/index"
 
 // withMutation snapshots the in-memory index document (and session clipboard /
 // selection), runs fn, and on any error restores the snapshots. On success,
-// normalizes membership/placement (safety-net repair of ghosts/duplicates) then
-// persists the document once. Write paths update membership and desktop/recycle
-// placement only (E3.2); rehome remains a safety net, not the primary strip of
-// dual-write LocBox.
+// persists the document once.
+//
+// Write paths must keep membership/placement invariants themselves (placement
+// primitives + admitMember). Load repair (rehomeFromMembership) runs only on Open.
 func (w *Workbench) withMutation(fn func() error) error {
 	if err := w.requireOpen(); err != nil {
 		return err
@@ -23,8 +23,6 @@ func (w *Workbench) withMutation(fn func() error) error {
 		w.multiSelect = multiSnap
 		return err
 	}
-	// Safety net: membership truth + free-cell repair before the single persist.
-	w.rehomeFromMembership()
 	if err := w.persist(); err != nil {
 		w.doc = snap
 		w.clipboard = clipSnap

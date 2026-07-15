@@ -8,12 +8,13 @@ type boxMembership struct {
 	compartmentID string // empty for simple boxes
 }
 
-// rehomeFromMembership normalizes the document to membership-truth shape:
+// rehomeFromMembership normalizes a loaded index document to membership-truth shape.
+// Call only on Open (load repair), not after every mutation — write paths keep
+// invariants via placement primitives + admitMember.
 //
 //   - Box ItemIDs are the sole record of who is in a box/compartment (first claim
 //     wins; unknown / recycle / later-duplicate IDs are stripped).
-//   - Members keep no parallel in-box Location on the document (placement for
-//     them is membership alone).
+//   - Members keep no parallel in-box Location on the document.
 //   - Ghost LocBox without membership → free desktop cell in the viewport.
 //   - Non-recycle, non-member without a valid desktop cell → free viewport cell.
 //   - Recycle placeholders stay kind-only LocRecycle.
@@ -21,24 +22,7 @@ type boxMembership struct {
 // Desk projects LocBox from membership for the external view; this function
 // only shapes the index document.
 func (w *Workbench) rehomeFromMembership() {
-	// phID → first membership claim (ItemIDs order wins; later duplicates stripped).
-	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
-	phOK := make(map[string]bool, len(w.doc.Placeholders))
-	for _, p := range w.doc.Placeholders {
-		phOK[p.ID] = true
-	}
-
-	for i := range w.doc.Boxes {
-		b := &w.doc.Boxes[i]
-		if b.Kind == BoxSimple {
-			b.ItemIDs = w.cleanItemIDs(b.ItemIDs, phOK, claimed, b.ID, "")
-			continue
-		}
-		for j := range b.Compartments {
-			c := &b.Compartments[j]
-			c.ItemIDs = w.cleanItemIDs(c.ItemIDs, phOK, claimed, b.ID, c.ID)
-		}
-	}
+	claimed := w.buildMembershipClaims(true)
 
 	// Placement: members drop LocBox; ghosts and invalid desktop get free cells.
 	// Free members' former desktop cells so subsequent ghost placement can reuse them.
@@ -47,7 +31,7 @@ func (w *Workbench) rehomeFromMembership() {
 		p := &w.doc.Placeholders[i]
 		if p.Location.Kind == LocRecycle {
 			// Recycle is not a box member; strip any accidental box/desktop coords.
-			p.Location = index.Location{Kind: LocRecycle}
+			w.setRecyclePlacement(i)
 			continue
 		}
 		if _, ok := claimed[p.ID]; ok {
@@ -55,7 +39,7 @@ func (w *Workbench) rehomeFromMembership() {
 			if p.Location.Kind == LocDesktop {
 				delete(occupied, cell{p.Location.Row, p.Location.Col})
 			}
-			p.Location = index.Location{}
+			w.clearPlacement(i)
 			continue
 		}
 		// Not a box member: need a valid desktop placement.
@@ -65,7 +49,7 @@ func (w *Workbench) rehomeFromMembership() {
 			}
 			free := nextFreeCellInViewport(occupied)
 			occupied[free] = true
-			p.Location = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
+			w.setDesktopPlacement(i, free.row, free.col)
 		}
 	}
 }
@@ -75,7 +59,39 @@ func validDesktopPlacement(loc index.Location) bool {
 	return loc.Kind == LocDesktop && loc.Row >= 1 && loc.Col >= 1
 }
 
-func (w *Workbench) cleanItemIDs(
+// buildMembershipClaims walks ItemIDs with one product rule set:
+// first claim wins; skip unknown ids; skip recycle placement.
+// When mutate is true, ItemIDs lists are rewritten to the cleaned claim set.
+// Read paths (Desk, grid occupancy) use mutate=false so the same filters apply
+// without rewriting the document mid-view.
+func (w *Workbench) buildMembershipClaims(mutate bool) map[string]boxMembership {
+	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
+	phOK := make(map[string]bool, len(w.doc.Placeholders))
+	for _, p := range w.doc.Placeholders {
+		phOK[p.ID] = true
+	}
+
+	for i := range w.doc.Boxes {
+		b := &w.doc.Boxes[i]
+		if b.Kind == BoxSimple {
+			cleaned := w.filterItemIDs(b.ItemIDs, phOK, claimed, b.ID, "")
+			if mutate {
+				b.ItemIDs = cleaned
+			}
+			continue
+		}
+		for j := range b.Compartments {
+			c := &b.Compartments[j]
+			cleaned := w.filterItemIDs(c.ItemIDs, phOK, claimed, b.ID, c.ID)
+			if mutate {
+				c.ItemIDs = cleaned
+			}
+		}
+	}
+	return claimed
+}
+
+func (w *Workbench) filterItemIDs(
 	ids []string,
 	phOK map[string]bool,
 	claimed map[string]boxMembership,
@@ -117,31 +133,10 @@ func (w *Workbench) placeholderInRecycle(phID string) bool {
 }
 
 // membershipByPlaceholder builds the first-claim map from current ItemIDs
-// (no mutation). Used by Desk to project LocBox for the external view and by
-// grid occupancy to ignore in-box members. "In a box?" is always this map,
-// never Location.Kind == LocBox.
+// (no mutation). Same filter rules as rehome (unknown / recycle / first-wins).
+// "In a box?" is always this map, never Location.Kind == LocBox.
 func (w *Workbench) membershipByPlaceholder() map[string]boxMembership {
-	claimed := make(map[string]boxMembership, len(w.doc.Placeholders))
-	for _, b := range w.doc.Boxes {
-		if b.Kind == BoxSimple {
-			for _, id := range b.ItemIDs {
-				if _, ok := claimed[id]; ok {
-					continue
-				}
-				claimed[id] = boxMembership{boxID: b.ID}
-			}
-			continue
-		}
-		for _, c := range b.Compartments {
-			for _, id := range c.ItemIDs {
-				if _, ok := claimed[id]; ok {
-					continue
-				}
-				claimed[id] = boxMembership{boxID: b.ID, compartmentID: c.ID}
-			}
-		}
-	}
-	return claimed
+	return w.buildMembershipClaims(false)
 }
 
 // projectLocation overlays membership as LocBox for Desk/HTTP views.

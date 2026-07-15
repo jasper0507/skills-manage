@@ -7,9 +7,8 @@ type point struct{ x, y float64 }
 // findBoxPosWithoutIconOverlap snaps (x,y) and nudges until the box rectangle
 // does not cover desktop skill icons or the recycle icon. ok is false when no
 // clear slot is found within the search radius (refuse cover rather than silent overlap).
-// excludeBoxID is reserved (boxes may stack; only icon coverage is forbidden).
-func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64, excludeBoxID string) (point, bool) {
-	_ = excludeBoxID
+// Boxes may stack; only icon coverage is forbidden.
+func (w *Workbench) findBoxPosWithoutIconOverlap(x, y, width, height float64) (point, bool) {
 	// Snapshot desktop icon rects once; membership does not change during nudge search.
 	icons := w.desktopIconRects()
 	px := snap(x, boxSnapGrid)

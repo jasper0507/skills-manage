@@ -402,12 +402,8 @@ func TestRecycle_SystemIconCannotBeCopiedCutOrDeleted(t *testing.T) {
 	}
 	before := desk.RecycleIcon.Location
 
-	// Explicit product rule: copy/cut/delete of the recycle system icon is refused.
-	for _, action := range []string{"copy", "cut", "delete"} {
-		if err := wb.RecycleIconAction(action); err == nil {
-			t.Errorf("RecycleIconAction(%q) succeeded; want refuse", action)
-		}
-	}
+	// Recycle system icon is not a placeholder: clipboard/trash APIs cannot target it.
+	// Product rule: copy/cut/delete of the recycle icon itself is impossible (no ph id).
 
 	// Clipboard only accepts placeholder IDs; cut+paste of skills leaves recycle untouched.
 	alpha := phByName(t, desk, "alpha")

@@ -45,7 +45,8 @@ func (w *Workbench) Inventory() (Inventory, error) {
 }
 
 // Open loads the central index, normalizes legacy body-delete recycle metadata,
-// reconciles with a fresh scan (places only brand-new skills), and persists the desk.
+// repairs membership/placement (rehome once on load), reconciles with a fresh scan
+// (places only brand-new skills), and persists the desk.
 // Does not run package purge, isolate, or any Skill-package lifecycle.
 // Safe to call once at session start; subsequent sessions call Open again.
 func (w *Workbench) Open() error {
@@ -57,13 +58,11 @@ func (w *Workbench) Open() error {
 	w.normalizeLegacyIndex()
 	// Recycle icon default before free-cell repair so ghosts do not land on (1,1).
 	w.ensureRecycleDefault()
-	// ItemIDs is membership truth; repair Location before scan placement uses cells.
+	// Load-only repair: membership truth + free-cell for ghosts (not a write-path net).
 	w.rehomeFromMembership()
 	if err := w.reconcileFromScan(); err != nil {
 		return err
 	}
-	// Rehome again so any reconcile side effects stay consistent (usually no-op).
-	w.rehomeFromMembership()
 	w.opened = true
 	if err := w.persist(); err != nil {
 		w.opened = false
@@ -84,7 +83,7 @@ func (w *Workbench) normalizeLegacyIndex() {
 		if w.doc.Placeholders[i].Location.Kind != LocRecycle {
 			continue
 		}
-		w.doc.Placeholders[i].Location = index.Location{Kind: LocRecycle}
+		w.setRecyclePlacement(i)
 	}
 }
 
@@ -95,11 +94,7 @@ func (w *Workbench) Rescan() error {
 		return w.Open()
 	}
 	return w.withMutation(func() error {
-		if err := w.reconcileFromScan(); err != nil {
-			return err
-		}
-		w.rehomeFromMembership()
-		return nil
+		return w.reconcileFromScan()
 	})
 }
 
@@ -135,7 +130,7 @@ func (w *Workbench) Desk() Desk {
 
 	boxes := make([]Box, 0, len(w.doc.Boxes))
 	for _, b := range w.doc.Boxes {
-		boxes = append(boxes, w.viewBox(b, phByID))
+		boxes = append(boxes, w.viewBox(b, phByID, membership))
 	}
 
 	var clip *Clipboard
@@ -160,7 +155,7 @@ func (w *Workbench) Desk() Desk {
 	}
 }
 
-func (w *Workbench) viewBox(b index.BoxRecord, phByID map[string]Placeholder) Box {
+func (w *Workbench) viewBox(b index.BoxRecord, phByID map[string]Placeholder, membership map[string]boxMembership) Box {
 	out := Box{
 		ID:                  b.ID,
 		Kind:                b.Kind,
@@ -173,7 +168,7 @@ func (w *Workbench) viewBox(b index.BoxRecord, phByID map[string]Placeholder) Bo
 		ActiveCompartmentID: b.ActiveCompartmentID,
 	}
 	if b.Kind == BoxSimple {
-		out.Items = placeholdersForIDs(b.ItemIDs, phByID)
+		out.Items = placeholdersForContainer(b.ID, "", b.ItemIDs, phByID, membership)
 		return out
 	}
 	out.Compartments = make([]Compartment, 0, len(b.Compartments))
@@ -181,15 +176,26 @@ func (w *Workbench) viewBox(b index.BoxRecord, phByID map[string]Placeholder) Bo
 		out.Compartments = append(out.Compartments, Compartment{
 			ID:    c.ID,
 			Tag:   c.Tag,
-			Items: placeholdersForIDs(c.ItemIDs, phByID),
+			Items: placeholdersForContainer(b.ID, c.ID, c.ItemIDs, phByID, membership),
 		})
 	}
 	return out
 }
 
-func placeholdersForIDs(ids []string, phByID map[string]Placeholder) []Placeholder {
+// placeholdersForContainer lists items that have a valid membership claim for this
+// box/compartment (same filters as buildMembershipClaims — skips recycle/dup/unknown).
+func placeholdersForContainer(
+	boxID, compartmentID string,
+	ids []string,
+	phByID map[string]Placeholder,
+	membership map[string]boxMembership,
+) []Placeholder {
 	out := make([]Placeholder, 0, len(ids))
 	for _, id := range ids {
+		m, ok := membership[id]
+		if !ok || m.boxID != boxID || m.compartmentID != compartmentID {
+			continue
+		}
 		if p, ok := phByID[id]; ok {
 			out = append(out, p)
 		}
@@ -254,36 +260,4 @@ func (w *Workbench) persist() error {
 	return nil
 }
 
-// DefaultScanRoots returns sensible user-level and project-level skill paths.
-// Bundled/system trees are not included.
-func DefaultScanRoots(home, projectRoot string) []string {
-	var roots []string
-	userDirs := []string{
-		".agents/skills",
-		".claude/skills",
-		".codex/skills",
-		".grok/skills",
-	}
-	for _, rel := range userDirs {
-		if home != "" {
-			roots = append(roots, filepath.Join(home, rel))
-		}
-	}
-	projectDirs := []string{
-		".agents/skills",
-		".claude/skills",
-		".codex/skills",
-		".grok/skills",
-	}
-	for _, rel := range projectDirs {
-		if projectRoot != "" {
-			roots = append(roots, filepath.Join(projectRoot, rel))
-		}
-	}
-	return roots
-}
 
-// DefaultIndexPath returns the user-level 中央索引 path (e.g. under XDG config).
-func DefaultIndexPath(configHome string) string {
-	return index.DefaultPath(configHome)
-}

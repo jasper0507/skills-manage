@@ -50,57 +50,48 @@ func (w *Workbench) PasteToDesktop(row, col int) error {
 			return fmt.Errorf("clipboard empty")
 		}
 
-		occupied := w.occupiedDesktopCells()
-		preferRow, preferCol := row, col
+		prefer := cell{row, col}
 
 		if cb.Mode == ClipCopy {
+			// Collect valid sources first so we allocate the right number of cells.
+			type src struct {
+				identity string
+			}
+			sources := make([]src, 0, len(cb.PlaceholderIDs))
 			for _, srcID := range cb.PlaceholderIDs {
 				srcIdx, ok := w.placeholderIndex(srcID)
 				if !ok {
 					continue
 				}
-				src := w.doc.Placeholders[srcIdx]
-				free := nextFreeCell(occupied, preferCol, preferRow)
-				occupied[free] = true
-				preferRow = free.row
-				// next paste stacks downward in the same preferred column first.
+				sources = append(sources, src{identity: w.doc.Placeholders[srcIdx].Identity})
+			}
+			occupied := w.occupiedDesktopCells()
+			// Copy stacks downward in the preferred column (historical paste behavior).
+			cells := allocateDesktopCells(occupied, len(sources), prefer, true, stackDown)
+			for i, s := range sources {
 				newID := w.newPlaceholderID()
 				w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
 					ID:       newID,
-					Identity: src.Identity,
-					Location: index.Location{Kind: LocDesktop, Row: free.row, Col: free.col},
+					Identity: s.identity,
 				})
+				w.setDesktopPlacement(len(w.doc.Placeholders)-1, cells[i].row, cells[i].col)
 			}
 			// Copy mode keeps clipboard.
 			return nil
 		}
 
-		// Cut: move existing placeholders. Free vacated desktop cells so multi-item
-		// paste and self-cell paste can land on the requested free slots.
+		// Cut: move existing placeholders onto free cells; clear clipboard.
+		ids := make([]string, 0, len(cb.PlaceholderIDs))
 		for _, srcID := range cb.PlaceholderIDs {
-			srcIdx, ok := w.placeholderIndex(srcID)
-			if !ok {
+			if _, ok := w.placeholderIndex(srcID); !ok {
 				continue
 			}
 			if w.placeholderInRecycle(srcID) {
 				continue
 			}
-			loc := w.doc.Placeholders[srcIdx].Location
-			if validDesktopPlacement(loc) {
-				delete(occupied, cell{loc.Row, loc.Col})
-			}
-			w.removePlaceholderFromContainers(srcID)
-			// Prefer the exact requested cell when free (first mover), else next free.
-			free := nextFreeCell(occupied, preferCol, preferRow)
-			if !occupied[cell{row, col}] {
-				free = cell{row, col}
-			}
-			occupied[free] = true
-			preferRow = free.row + 1
-			w.doc.Placeholders[srcIdx].Location = index.Location{
-				Kind: LocDesktop, Row: free.row, Col: free.col,
-			}
+			ids = append(ids, srcID)
 		}
+		w.placeExistingOnDesktop(ids, prefer, true, stackDown)
 		w.clipboard = nil
 		return nil
 	})
@@ -203,7 +194,7 @@ func (w *Workbench) admitMember(box *index.BoxRecord, phID, resolvedCompartmentI
 		}
 	}
 	if idx, ok := w.placeholderIndex(phID); ok {
-		w.doc.Placeholders[idx].Location = index.Location{}
+		w.clearPlacement(idx)
 	}
 	return nil
 }

@@ -65,7 +65,7 @@ func (w *Workbench) composeSimpleIntoSimpleNoPersist(sIdx, tIdx int) error {
 	tgt := &w.doc.Boxes[tIdx]
 
 	// Expanded composite geometry must not cover desktop icons — check before mutate.
-	pos, ok := w.findBoxPosWithoutIconOverlap(tgt.X, tgt.Y, defaultCompositeBoxW, defaultCompositeBoxH, tgt.ID)
+	pos, ok := w.findBoxPosWithoutIconOverlap(tgt.X, tgt.Y, defaultCompositeBoxW, defaultCompositeBoxH)
 	if !ok {
 		return fmt.Errorf("no free box position that avoids covering desktop skill icons")
 	}
@@ -162,7 +162,7 @@ func (w *Workbench) MoveBox(boxID string, x, y float64) error {
 			return fmt.Errorf("unknown box %q", boxID)
 		}
 		box := &w.doc.Boxes[bIdx]
-		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, box.W, box.H, boxID)
+		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, box.W, box.H)
 		if !ok {
 			return fmt.Errorf("box placement would cover desktop skill icons")
 		}
@@ -216,7 +216,7 @@ func (w *Workbench) EjectCompartment(compositeBoxID, compartmentID string, x, y 
 		}
 
 		// Placement first so a refuse leaves the composite unchanged.
-		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH, "")
+		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH)
 		if !ok {
 			return fmt.Errorf("no free box position that avoids covering desktop skill icons")
 		}
@@ -352,9 +352,9 @@ func (w *Workbench) DeleteBox(boxID string) error {
 		}
 
 		// Remove box first so free-cell search ignores it (geometry only; cells are icon-only).
+		// Members are no longer in ItemIDs after this; place them on free desktop cells.
 		w.doc.Boxes = append(w.doc.Boxes[:bIdx], w.doc.Boxes[bIdx+1:]...)
 
-		occupied := w.occupiedDesktopCells()
 		// Prefer cells near the former box position.
 		startRow := int(box.Y-iconGridOriginY)/iconGridCellH + 1
 		startCol := int(box.X-iconGridOriginX)/iconGridCellW + 1
@@ -364,22 +364,12 @@ func (w *Workbench) DeleteBox(boxID string) error {
 		if startCol < 1 {
 			startCol = 1
 		}
-		for _, phID := range ids {
-			idx, ok := w.placeholderIndex(phID)
-			if !ok {
-				continue
-			}
-			free := nextFreeCell(occupied, startCol, startRow)
-			occupied[free] = true
-			w.doc.Placeholders[idx].Location = index.Location{
-				Kind: LocDesktop, Row: free.row, Col: free.col,
-			}
-			// Spread subsequent icons along the column.
-			startRow = free.row + 1
-		}
+		// Membership already gone with the box; placeExisting still parks + allocates.
+		w.placeExistingOnDesktop(ids, cell{startRow, startCol}, true, stackDown)
 
 		r := &w.doc.RecycleIcon
 		if r.Kind == LocBox && r.BoxID == boxID {
+			occupied := w.occupiedDesktopCells()
 			free := nextFreeCell(occupied, startCol, startRow)
 			r.Kind = LocDesktop
 			r.Row, r.Col = free.row, free.col
@@ -405,7 +395,7 @@ func (w *Workbench) createSimpleBoxNoPersist(tag string, x, y float64) (string, 
 	if tag == "" {
 		tag = "新建"
 	}
-	pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH, "")
+	pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH)
 	if !ok {
 		return "", fmt.Errorf("no free box position that avoids covering desktop skill icons")
 	}
@@ -448,7 +438,7 @@ func (w *Workbench) CreateCompositeBox(title string, tags []string, x, y float64
 
 	var id string
 	err := w.withMutation(func() error {
-		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultCompositeBoxW, defaultCompositeBoxH, "")
+		pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultCompositeBoxW, defaultCompositeBoxH)
 		if !ok {
 			return fmt.Errorf("no free box position that avoids covering desktop skill icons")
 		}

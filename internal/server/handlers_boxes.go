@@ -11,17 +11,9 @@ type composeReq struct {
 
 func (s *Server) handleComposeBoxes(w http.ResponseWriter, r *http.Request) {
 	var req composeReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.ComposeBoxes(req.SourceBoxID, req.TargetBoxID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.ComposeBoxes(req.SourceBoxID, req.TargetBoxID)
+	})
 }
 
 type moveBoxPosReq struct {
@@ -32,17 +24,9 @@ type moveBoxPosReq struct {
 
 func (s *Server) handleMoveBox(w http.ResponseWriter, r *http.Request) {
 	var req moveBoxPosReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.MoveBox(req.BoxID, req.X, req.Y); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.MoveBox(req.BoxID, req.X, req.Y)
+	})
 }
 
 type setActiveReq struct {
@@ -52,17 +36,9 @@ type setActiveReq struct {
 
 func (s *Server) handleSetActiveCompartment(w http.ResponseWriter, r *http.Request) {
 	var req setActiveReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.SetActiveCompartment(req.BoxID, req.CompartmentID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.SetActiveCompartment(req.BoxID, req.CompartmentID)
+	})
 }
 
 type ejectReq struct {
@@ -74,17 +50,9 @@ type ejectReq struct {
 
 func (s *Server) handleEjectCompartment(w http.ResponseWriter, r *http.Request) {
 	var req ejectReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.EjectCompartment(req.BoxID, req.CompartmentID, req.X, req.Y); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.EjectCompartment(req.BoxID, req.CompartmentID, req.X, req.Y)
+	})
 }
 
 type renameTagReq struct {
@@ -95,17 +63,9 @@ type renameTagReq struct {
 
 func (s *Server) handleRenameBoxTag(w http.ResponseWriter, r *http.Request) {
 	var req renameTagReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.RenameBoxTag(req.BoxID, req.Tag, req.CompartmentID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.RenameBoxTag(req.BoxID, req.Tag, req.CompartmentID)
+	})
 }
 
 type renameTitleReq struct {
@@ -115,17 +75,9 @@ type renameTitleReq struct {
 
 func (s *Server) handleRenameBoxTitle(w http.ResponseWriter, r *http.Request) {
 	var req renameTitleReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.RenameBoxTitle(req.BoxID, req.Title); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.RenameBoxTitle(req.BoxID, req.Title)
+	})
 }
 
 type idReq struct {
@@ -134,17 +86,9 @@ type idReq struct {
 
 func (s *Server) handleDeleteBox(w http.ResponseWriter, r *http.Request) {
 	var req idReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.DeleteBox(req.BoxID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.DeleteBox(req.BoxID)
+	})
 }
 
 type createSimpleReq struct {
@@ -155,17 +99,10 @@ type createSimpleReq struct {
 
 func (s *Server) handleCreateSimpleBox(w http.ResponseWriter, r *http.Request) {
 	var req createSimpleReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := s.wb.CreateSimpleBox(req.Tag, req.X, req.Y); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		_, err := s.wb.CreateSimpleBox(req.Tag, req.X, req.Y)
+		return err
+	})
 }
 
 type createCompositeReq struct {
@@ -177,15 +114,8 @@ type createCompositeReq struct {
 
 func (s *Server) handleCreateCompositeBox(w http.ResponseWriter, r *http.Request) {
 	var req createCompositeReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := s.wb.CreateCompositeBox(req.Title, req.Tags, req.X, req.Y); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		_, err := s.wb.CreateCompositeBox(req.Title, req.Tags, req.X, req.Y)
+		return err
+	})
 }

@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/jasper0507/skills-manage/internal/workbench"
 )
 
 // Config is the assembled runtime configuration for a command.
@@ -46,7 +44,7 @@ func ResolveScanRoots(roots []string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
-	return workbench.DefaultScanRoots(home, cwd), nil
+	return DefaultScanRoots(home, cwd), nil
 }
 
 // ResolveIndexPath returns explicit path or $CONFIG/skills-manage/index.json.
@@ -58,7 +56,7 @@ func ResolveIndexPath(indexPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve config directory: %w", err)
 	}
-	return workbench.DefaultIndexPath(cfg), nil
+	return DefaultIndexPath(cfg), nil
 }
 
 // MultiFlag accumulates repeated -root values for flag.Var.

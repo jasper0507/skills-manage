@@ -52,32 +52,7 @@ func (w *Workbench) movePlaceholdersToDesktopNoPersist(placeholderIDs []string, 
 		return w.mergeIconsIntoAutoBoxNoPersist(all, row, col)
 	}
 
-	// Park movers so they do not block free-cell search. Membership strip + location
-	// update together (single write path for leave-box → desktop).
-	for _, id := range ids {
-		idx, _ := w.placeholderIndex(id)
-		w.removePlaceholderFromContainers(id)
-		w.doc.Placeholders[idx].Location = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
-	}
-
-	occupied := w.occupiedDesktopCells()
-	// Prefer requested cell first, then walk free cells.
-	startRow, startCol := row, col
-	for _, id := range ids {
-		idx, _ := w.placeholderIndex(id)
-		free := nextFreeCell(occupied, startCol, startRow)
-		if !occupied[cell{row, col}] && startRow == row && startCol == col {
-			// First placement: exact cell when free.
-			free = cell{row, col}
-		}
-		w.doc.Placeholders[idx].Location = index.Location{Kind: LocDesktop, Row: free.row, Col: free.col}
-		occupied[free] = true
-		startRow = free.row
-		startCol = free.col + 1
-		if startCol < 1 {
-			startCol = 1
-		}
-	}
+	w.placeExistingOnDesktop(ids, cell{row, col}, true, stackRight)
 	return nil
 }
 
@@ -163,9 +138,9 @@ func (w *Workbench) mergeIconsIntoAutoBoxNoPersist(phIDs []string, nearRow, near
 			continue
 		}
 		saved = append(saved, savedLoc{idx, w.doc.Placeholders[idx].Location})
-		w.doc.Placeholders[idx].Location = index.Location{Kind: LocDesktop, Row: -1, Col: -1}
+		w.parkOffGrid(idx)
 	}
-	pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH, "")
+	pos, ok := w.findBoxPosWithoutIconOverlap(x, y, defaultSimpleBoxW, defaultSimpleBoxH)
 	// Restore so failure leaves state unchanged; success path rewrites locations below.
 	// (Caller withMutation also snapshots the full document.)
 	for _, s := range saved {
@@ -251,8 +226,8 @@ func (w *Workbench) reconcileFromScan() error {
 		w.doc.Placeholders = append(w.doc.Placeholders, index.PlaceholderRecord{
 			ID:       id,
 			Identity: s.Identity,
-			Location: index.Location{Kind: LocDesktop, Row: c.row, Col: c.col},
 		})
+		w.setDesktopPlacement(len(w.doc.Placeholders)-1, c.row, c.col)
 		have[s.Identity] = true
 	}
 	if w.doc.SchemaVersion == 0 {

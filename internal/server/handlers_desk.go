@@ -12,17 +12,9 @@ type moveDesktopReq struct {
 
 func (s *Server) handleMovePlaceholderDesktop(w http.ResponseWriter, r *http.Request) {
 	var req moveDesktopReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.MovePlaceholderToDesktop(req.PlaceholderID, req.Row, req.Col); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.MovePlaceholderToDesktop(req.PlaceholderID, req.Row, req.Col)
+	})
 }
 
 type moveManyDesktopReq struct {
@@ -33,17 +25,9 @@ type moveManyDesktopReq struct {
 
 func (s *Server) handleMovePlaceholdersDesktop(w http.ResponseWriter, r *http.Request) {
 	var req moveManyDesktopReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.MovePlaceholdersToDesktop(req.PlaceholderIDs, req.Row, req.Col); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.MovePlaceholdersToDesktop(req.PlaceholderIDs, req.Row, req.Col)
+	})
 }
 
 type moveBoxReq struct {
@@ -54,17 +38,9 @@ type moveBoxReq struct {
 
 func (s *Server) handleMovePlaceholderBox(w http.ResponseWriter, r *http.Request) {
 	var req moveBoxReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.MovePlaceholderToBox(req.PlaceholderID, req.BoxID, req.CompartmentID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.MovePlaceholderToBox(req.PlaceholderID, req.BoxID, req.CompartmentID)
+	})
 }
 
 type moveManyBoxReq struct {
@@ -75,15 +51,7 @@ type moveManyBoxReq struct {
 
 func (s *Server) handleMovePlaceholdersBox(w http.ResponseWriter, r *http.Request) {
 	var req moveManyBoxReq
-	if err := decodeJSON(r, &req); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.wb.MovePlaceholdersToBox(req.PlaceholderIDs, req.BoxID, req.CompartmentID); err != nil {
-		s.writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeState(w)
+	s.mutateJSON(w, r, &req, func() error {
+		return s.wb.MovePlaceholdersToBox(req.PlaceholderIDs, req.BoxID, req.CompartmentID)
+	})
 }
